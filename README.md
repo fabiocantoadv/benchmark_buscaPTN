@@ -81,7 +81,7 @@ não tem semântica alguma. É comportamento de viés circular, não de qualidad
 | `gerar_embeddings_gemma300_benchmark.py` | gera embeddings localmente (Mac, MPS) |
 | `avaliar_benchmark.py` | busca por similaridade e métricas — nDCG@k, R-Precision, MRR, P@k, diagnóstico do gabarito e teste pareado |
 | `baseline_bm25.py` | baseline lexical BM25 em português, sem dependências extras |
-| `gerar_pool_revisao.py` | monta o pool de julgamento e consolida o gabarito revisado |
+| `gerar_pool_revisao.py` | monta o pool de julgamento (completo e diferencial) e consolida o gabarito revisado |
 | `notebooks/benchmark_patentes_colab.ipynb` | pipeline completo no Colab |
 
 ## Variantes de texto
@@ -112,3 +112,36 @@ O benchmark compara três formas de representar cada patente:
 Cada pessoa roda a própria cópia do notebook no Colab e envia mudanças por
 commit. Os arquivos em `resultados/` recebem carimbo de data e hora para que
 duas execuções não se sobrescrevam.
+
+
+## Qual variante de texto usar?
+
+Com o gabarito atual **não é possível aferir**: ele é derivado de IPC, e as
+variantes se distinguem justamente por quanta descrição de IPC carregam. A
+comparação é circular, e o BM25 confirma o mecanismo — um sistema sem semântica
+alguma também melhora ao receber IPC, e melhora mais (+0,027) que as variantes
+densas (+0,018).
+
+Fatos mensuráveis que independem do gabarito:
+
+| variante | tamanho mediano | proporção de IPC no texto |
+|---|---|---|
+| `tr` | 149 palavras | — |
+| `ipc_direto` | 183 palavras | 17% |
+| `ipc_hierarquia` | 312 palavras | 53% |
+
+Na `ipc_hierarquia` mais da metade do texto vetorizado é descrição de
+classificação compartilhada entre documentos da mesma classe — o mesmo
+mecanismo de diluição que prejudica queries curtas. Além disso, 380 dos 1.000
+documentos têm ao menos um símbolo IPC sem descrição em português, então o
+enriquecimento não é uniforme: é uma variável de confusão dentro da própria
+variante.
+
+**Recomendação provisória: `tr`**, por parcimônia — o enriquecimento custa 2,1×
+em tokens, aplica-se de forma desigual a 38% do corpus e não demonstrou ganho.
+
+Para decidir com evidência, use o **pool diferencial** (seção 7e do notebook):
+julga-se apenas os documentos em que as variantes discordam (~340 pares no
+top-10, contra 45.000 do qrels completo), produzindo um gabarito pequeno,
+humano e não derivado de IPC. Serve para comparação relativa entre variantes,
+não para reportar nDCG absoluto.

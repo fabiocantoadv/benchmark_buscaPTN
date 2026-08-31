@@ -214,3 +214,145 @@ def consolidar_qrels_revisado(
     print(f"  R mediano por query: {relevantes.median():.0f} "
           f"(antes da revisao era ~200)")
     return qrels
+
+
+# ---------------------------------------------------------------------------
+# Pool diferencial: julga so o que decide a comparacao entre variantes
+# ---------------------------------------------------------------------------
+
+def montar_pool_diferencial(
+    rankings: dict[str, dict],
+    profundidade: int = 10,
+    minimo_sistemas_ausentes: int = 1,
+) -> pd.DataFrame:
+    """Diferenca simetrica dos top-k entre os sistemas comparados.
+
+    Onde todos os sistemas ranqueiam o mesmo documento na mesma faixa, o
+    julgamento daquele documento e irrelevante para a comparacao: ele entra
+    igual nas metricas de todos. So os documentos que ALGUM sistema trouxe e
+    outro NAO decidem quem ganha.
+
+    Isso reduz o esforco de julgamento em uma ordem de grandeza em relacao ao
+    pool completo, ao custo de produzir um gabarito parcial — bom para
+    comparar sistemas entre si, insuficiente para reportar nDCG absoluto (veja
+    a nota em avaliar_diferencial).
+
+    `minimo_sistemas_ausentes` = 1 mantem todo documento que falte em ao menos
+    um sistema. Aumente para focar nas discordancias mais fortes.
+    """
+    if len(rankings) < 2:
+        raise ValueError("Sao necessarios ao menos dois sistemas para comparar")
+
+    nomes = list(rankings)
+    # indexa: (query, doc) -> {sistema: posicao}
+    posicoes: dict[tuple[str, str], dict[str, int]] = {}
+    queries_vistas: list[str] = []
+
+    for nome in nomes:
+        ranking = rankings[nome]
+        for i, query_id in enumerate(ranking["query_ids"]):
+            query_id = str(query_id)
+            if query_id not in queries_vistas:
+                queries_vistas.append(query_id)
+            for posicao, doc_id in enumerate(ranking["doc_ids_ranking"][i][:profundidade], start=1):
+                posicoes.setdefault((query_id, str(doc_id)), {})[nome] = posicao
+
+    linhas = []
+    consensuais = 0
+    for (query_id, doc_id), por_sistema in posicoes.items():
+        ausentes = [n for n in nomes if n not in por_sistema]
+        if len(ausentes) < minimo_sistemas_ausentes:
+            consensuais += 1
+            continue
+        linhas.append({
+            "query_id": query_id,
+            CHAVE_DOC: doc_id,
+            "n_sistemas": len(por_sistema),
+            "sistemas": ",".join(sorted(por_sistema)),
+            "ausente_em": ",".join(sorted(ausentes)),
+            "melhor_posicao": min(por_sistema.values()),
+            **{f"pos_{n}": por_sistema.get(n, "") for n in nomes},
+        })
+
+    pool = pd.DataFrame(linhas)
+    total = len(posicoes)
+    print(f"Pool diferencial (top-{profundidade}, {len(nomes)} sistemas):")
+    print(f"  {total} pares (query, doc) distintos no total")
+    print(f"  {consensuais} consensuais (todos os sistemas trouxeram) -> nao precisam julgamento")
+    print(f"  {len(pool)} DISCORDANTES -> estes decidem a comparacao")
+    if total:
+        print(f"  reducao de esforco: {100 * consensuais / total:.0f}%")
+    if not pool.empty:
+        print(f"  mediana de {pool.groupby('query_id').size().median():.0f} pares por query")
+
+    return pool.sort_values(
+        ["query_id", "melhor_posicao"], ascending=[True, True]
+    ).reset_index(drop=True)
+
+
+def avaliar_diferencial(
+    rankings: dict[str, dict],
+    qrels_parcial: pd.DataFrame,
+    profundidade: int = 10,
+) -> pd.DataFrame:
+    """Compara sistemas usando SO os pares julgados no pool diferencial.
+
+    Metrica: precisao no top-`profundidade` calculada apenas sobre os
+    documentos que tem julgamento humano, com o denominador ajustado por
+    query. Documentos sem julgamento sao excluidos do calculo, nao tratados
+    como zero — tratar como zero penalizaria arbitrariamente o sistema que
+    trouxe documentos que ninguem julgou.
+
+    NAO REPORTE estes valores como nDCG ou precisao absoluta do sistema: o
+    gabarito e parcial por construcao e cobre so a regiao de discordancia.
+    O uso legitimo e a comparacao RELATIVA entre as variantes.
+    """
+    julgados = {
+        (str(q), str(d)): int(v)
+        for q, d, v in zip(
+            qrels_parcial["query_id"],
+            qrels_parcial[CHAVE_DOC],
+            qrels_parcial["relevance"],
+        )
+    }
+    if not julgados:
+        raise ValueError("qrels_parcial esta vazio")
+
+    linhas = []
+    for nome, ranking in rankings.items():
+        acertos = coberturas = 0
+        por_query = []
+        for i, query_id in enumerate(ranking["query_ids"]):
+            query_id = str(query_id)
+            docs = [str(d) for d in ranking["doc_ids_ranking"][i][:profundidade]]
+            com_julgamento = [(d, julgados[(query_id, d)]) for d in docs
+                              if (query_id, d) in julgados]
+            if not com_julgamento:
+                continue
+            rel = sum(1 for _, v in com_julgamento if v >= 1)
+            altos = sum(1 for _, v in com_julgamento if v >= 2)
+            por_query.append({
+                "query_id": query_id,
+                "julgados_no_topo": len(com_julgamento),
+                "precisao_julgada": rel / len(com_julgamento),
+                "precisao_alta_julgada": altos / len(com_julgamento),
+            })
+            acertos += rel
+            coberturas += len(com_julgamento)
+
+        detalhe = pd.DataFrame(por_query)
+        linhas.append({
+            "sistema": nome,
+            "queries_avaliadas": len(detalhe),
+            "docs_julgados_no_topo": coberturas,
+            "precisao_julgada": round(detalhe["precisao_julgada"].mean(), 4),
+            "precisao_alta_julgada": round(detalhe["precisao_alta_julgada"].mean(), 4),
+        })
+
+    tabela = pd.DataFrame(linhas).set_index("sistema")
+    tabela.attrs["aviso"] = (
+        "Gabarito parcial (so a regiao de discordancia). Use para comparacao "
+        "relativa entre sistemas; nao reporte como metrica absoluta."
+    )
+    print(tabela.attrs["aviso"])
+    return tabela
