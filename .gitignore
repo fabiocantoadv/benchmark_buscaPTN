@@ -1,0 +1,13 @@
+# Embeddings sao regeraveis em poucos minutos; nao versionar (~3 MB por colecao)
+embeddings/
+resultados/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Sistema
+.DS_Store
