@@ -41,10 +41,35 @@ com descrição em PT (96% considerando a hierarquia).
 | `qrels_candidatos_queries_benchmark.tsv` | 45.000 julgamentos (45 × 1.000), relevância 0/1/2 |
 | `gabaritos_candidatos_revisao.tsv` | 90 candidatos por query selecionados para revisão manual |
 
-> **Atenção:** o qrels atual é gerado por regras (padrões de IPC + termos) e o
-> script que o produz se descreve como "intencionalmente fraco". As métricas
-> medem concordância com a regra, não acerto semântico. A revisão manual do
-> gabarito é o passo pendente mais importante do projeto.
+> **Atenção — o gabarito atual não discrimina.** O qrels gerado por regras marca
+> em média 17% do corpus como relevante para cada query (R mediano de 172 em
+> 1.000 documentos). Nesse regime:
+>
+> - um ranqueador **aleatório** já obtém P@10 ≈ 0,21;
+> - `Recall@k` fica preso ao teto `k/R` e mede o tamanho do conjunto relevante,
+>   não a qualidade do ranqueamento — use R-Precision ou nDCG;
+> - avaliar variantes enriquecidas com IPC contra um gabarito derivado de IPC é
+>   circular, e o efeito é mensurável (veja abaixo).
+>
+> Rode `ab.diagnosticar_qrels(qrels)` antes de interpretar qualquer métrica. A
+> reconstrução do gabarito por pooling é o passo pendente mais importante do
+> projeto.
+
+### Resultados da primeira execução (gabarito por regras, 31/08/2026)
+
+| sistema | nDCG@10 | R-Precision |
+|---|---|---|
+| BM25 (título+resumo) | 0,587 | 0,322 |
+| BM25 (+ IPC hierarquia) | 0,613 | 0,373 |
+| EmbeddingGemma `tr` | 0,684 | — |
+| EmbeddingGemma `ipc_direto` | 0,697 | — |
+| EmbeddingGemma `ipc_hierarquia` | 0,702 | — |
+
+Leitura: o modelo denso supera o BM25 em cerca de 0,10 de nDCG@10 — este é o
+resultado mais sólido da execução. Já a vantagem das variantes com IPC **não se
+sustenta**: o ganho é pequeno (+0,018), desaparece quando se avalia só sobre
+`relevance=2` (onde o sinal chega a inverter) e aparece **também no BM25**, que
+não tem semântica alguma. É comportamento de viés circular, não de qualidade.
 
 ### Código
 
@@ -54,7 +79,9 @@ com descrição em PT (96% considerando a hierarquia).
 | `enriquecer_ipc_json_pt.py` | acrescenta descrições IPC em português e hierarquia |
 | `gerar_gabaritos_candidatos.py` | gera o qrels por regras e a amostra para revisão |
 | `gerar_embeddings_gemma300_benchmark.py` | gera embeddings localmente (Mac, MPS) |
-| `avaliar_benchmark.py` | busca por similaridade e métricas — nDCG@k, MRR, Recall@k, P@k |
+| `avaliar_benchmark.py` | busca por similaridade e métricas — nDCG@k, R-Precision, MRR, P@k, diagnóstico do gabarito e teste pareado |
+| `baseline_bm25.py` | baseline lexical BM25 em português, sem dependências extras |
+| `gerar_pool_revisao.py` | monta o pool de julgamento e consolida o gabarito revisado |
 | `notebooks/benchmark_patentes_colab.ipynb` | pipeline completo no Colab |
 
 ## Variantes de texto

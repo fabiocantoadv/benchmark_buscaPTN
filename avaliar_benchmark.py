@@ -192,6 +192,120 @@ def reciprocal_rank(relevancias_ranking: Sequence[int], limiar: int = 1) -> floa
     return 0.0
 
 
+def r_precision(relevancias_ranking, total_relevantes: int, limiar: int = 1) -> float:
+    """Precisao no corte R, onde R = numero de relevantes daquela query.
+
+    Diferente de P@10, o corte se adapta ao tamanho do conjunto relevante, o
+    que a torna comparavel entre queries com R muito diferente — exatamente o
+    caso deste benchmark, onde R varia de dezenas a centenas.
+    """
+    if total_relevantes == 0:
+        return float("nan")
+    corte = min(total_relevantes, len(relevancias_ranking))
+    if corte == 0:
+        return 0.0
+    return sum(1 for r in relevancias_ranking[:corte] if r >= limiar) / total_relevantes
+
+
+def recall_teto(total_relevantes: int, k: int) -> float:
+    """Maior Recall@k alcancavel: min(1, k/R).
+
+    Quando k < R, Recall@k nao pode passar de k/R por construcao. Nesse regime
+    a metrica mede o tamanho do conjunto relevante, nao a qualidade do
+    ranqueamento, e comparar Recall@k entre queries com R diferente nao faz
+    sentido.
+    """
+    if total_relevantes == 0:
+        return float("nan")
+    return min(1.0, k / total_relevantes)
+
+
+def recall_normalizado(relevancias_ranking, total_relevantes: int, k: int, limiar: int = 1) -> float:
+    """Recall@k dividido pelo seu teto: 1.0 = todos os k primeiros relevantes.
+
+    Nota: quando k < R, isto e algebricamente identico a P@k — o teto k/R
+    cancela o R do denominador do recall. Fica aqui porque no regime k >= R
+    os dois divergem, mas neste benchmark (R mediano de 172) espere ver
+    RecallNorm@10 e P@10 iguais; nao sao duas evidencias independentes.
+    """
+    teto = recall_teto(total_relevantes, k)
+    if not teto or np.isnan(teto):
+        return float("nan")
+    return recall_at_k(relevancias_ranking, total_relevantes, k, limiar) / teto
+
+
+def diagnosticar_qrels(qrels: pd.DataFrame, n_docs: int | None = None,
+                       ks: Iterable[int] = (10, 20)) -> pd.DataFrame:
+    """Verifica se o gabarito consegue discriminar sistemas.
+
+    Um gabarito em que uma fracao grande do corpus e relevante torna P@k e MRR
+    quase insensiveis a qualidade: o baseline aleatorio ja fica alto e o teto
+    do Recall@k desaba. Rode isto ANTES de interpretar qualquer metrica.
+    """
+    por_query = qrels[qrels["relevance"] >= 1].groupby("query_id").size()
+    altos = qrels[qrels["relevance"] >= 2].groupby("query_id").size()
+    if n_docs is None:
+        n_docs = qrels[CHAVE_DOC_PADRAO].nunique()
+
+    linhas = [
+        {"metrica": "documentos no corpus", "valor": n_docs},
+        {"metrica": "queries", "valor": qrels["query_id"].nunique()},
+        {"metrica": "R (rel>=1) minimo", "valor": int(por_query.min())},
+        {"metrica": "R (rel>=1) mediano", "valor": float(por_query.median())},
+        {"metrica": "R (rel>=1) maximo", "valor": int(por_query.max())},
+        {"metrica": "% do corpus relevante (mediano)", "valor": round(100 * por_query.median() / n_docs, 1)},
+        {"metrica": "R (rel=2) mediano", "valor": float(altos.median()) if len(altos) else 0.0},
+    ]
+    for k in ks:
+        linhas.append({
+            "metrica": f"P@{k} de um ranqueador aleatorio",
+            "valor": round(float((por_query / n_docs).mean()), 3),
+        })
+        linhas.append({
+            "metrica": f"teto mediano de Recall@{k}",
+            "valor": round(float(np.median([recall_teto(r, k) for r in por_query])), 4),
+        })
+    return pd.DataFrame(linhas)
+
+
+def comparar_pareado(resultados: dict[str, dict], metrica: str = "nDCG@10") -> pd.DataFrame:
+    """Teste pareado de Wilcoxon entre todos os pares de sistemas.
+
+    Uma diferenca de media entre dois sistemas nao diz se ela e consistente
+    entre as queries. O teste pareado diz. Atencao a multiplicidade: com n
+    sistemas sao n(n-1)/2 comparacoes, e um p de 0,04 isolado nesse conjunto
+    nao e evidencia forte.
+    """
+    try:
+        from scipy import stats
+    except ImportError:
+        raise SystemExit("Instale scipy: pip install scipy")
+
+    nomes = list(resultados)
+    linhas = []
+    for i, a in enumerate(nomes):
+        for b in nomes[i + 1:]:
+            x = resultados[a]["por_query"].set_index("query_id")[metrica]
+            y = resultados[b]["por_query"].set_index("query_id")[metrica].reindex(x.index)
+            dif = y - x
+            teste = stats.wilcoxon(x, y) if dif.abs().sum() > 0 else None
+            linhas.append({
+                "sistema_A": a,
+                "sistema_B": b,
+                f"delta_{metrica}": round(float(dif.mean()), 4),
+                "B_vence": int((dif > 0).sum()),
+                "A_vence": int((dif < 0).sum()),
+                "empates": int((dif == 0).sum()),
+                "p_wilcoxon": round(float(teste.pvalue), 4) if teste else float("nan"),
+            })
+    tabela = pd.DataFrame(linhas)
+    tabela.attrs["aviso"] = (
+        f"{len(linhas)} comparacoes sem correcao para multiplos testes; "
+        "considere Bonferroni (p < 0.05/n) antes de afirmar diferenca."
+    )
+    return tabela
+
+
 def avaliar(
     ranking: dict,
     qrels: pd.DataFrame,
@@ -210,6 +324,7 @@ def avaliar(
         )
 
     linhas = []
+    saturadas: set[int] = set()
     for i, query_id in enumerate(ranking["query_ids"]):
         query_id = str(query_id)
         julgamentos = mapa_qrels.get(query_id, {})
@@ -228,11 +343,15 @@ def avaliar(
             "altamente_relevantes": total_altamente,
             "MRR": reciprocal_rank(rels, limiar_relevante),
             "MRR_rel2": reciprocal_rank(rels, 2),
+            "R-Precision": r_precision(rels, total_relevantes, limiar_relevante),
         }
         for k in ks:
             linha[f"nDCG@{k}"] = ndcg_at_k(rels, rels_ideais, k)
             linha[f"Recall@{k}"] = recall_at_k(rels, total_relevantes, k, limiar_relevante)
+            linha[f"RecallNorm@{k}"] = recall_normalizado(rels, total_relevantes, k, limiar_relevante)
             linha[f"P@{k}"] = precision_at_k(rels, k, limiar_relevante)
+            if k < total_relevantes:
+                saturadas.add(k)
         linhas.append(linha)
 
     por_query = pd.DataFrame(linhas)
@@ -242,13 +361,28 @@ def avaliar(
     colunas_metricas = [c for c in por_query.columns if c not in {"query_id", "relevantes_no_qrels", "altamente_relevantes"}]
     agregado = por_query[colunas_metricas].mean().to_dict()
 
-    return {"por_query": por_query, "agregado": agregado}
+    avisos = []
+    if saturadas:
+        ks_sat = ", ".join(f"Recall@{k}" for k in sorted(saturadas))
+        avisos.append(
+            f"ATENCAO: {ks_sat} esta(o) saturado(s) em ao menos uma query (k < R). "
+            "Nesse regime Recall@k e limitado a k/R e mede o tamanho do conjunto "
+            "relevante, nao a qualidade do ranqueamento. Use R-Precision, "
+            "RecallNorm@k ou nDCG para comparar sistemas."
+        )
+    for aviso in avisos:
+        print(aviso)
+
+    return {"por_query": por_query, "agregado": agregado, "avisos": avisos}
 
 
 def comparar_variantes(resultados: dict[str, dict], metricas: Sequence[str] | None = None) -> pd.DataFrame:
     """Monta uma tabela variante x metrica a partir de {nome: resultado_avaliar}."""
     if metricas is None:
-        metricas = ["nDCG@10", "nDCG@20", "MRR", "Recall@10", "Recall@50", "P@10"]
+        # R-Precision e nDCG lideram porque nao saturam quando R e grande.
+        # Recall@k cru foi removido do padrao justamente por saturar.
+        metricas = ["nDCG@10", "nDCG@100", "R-Precision", "MRR", "MRR_rel2",
+                    "RecallNorm@10", "P@10"]
     linhas = []
     for nome, resultado in resultados.items():
         linha = {"variante": nome}
@@ -265,7 +399,7 @@ def avaliar_por_faceta(
 ) -> pd.DataFrame:
     """Quebra as metricas por uma coluna do TSV de queries (tema, tipo_query...)."""
     if metricas is None:
-        metricas = ["nDCG@10", "MRR", "Recall@10", "Recall@50"]
+        metricas = ["nDCG@10", "R-Precision", "MRR", "MRR_rel2"]
     juncao = resultado["por_query"].merge(
         queries_df[["query_id", faceta]].astype(str), on="query_id", how="left"
     )
