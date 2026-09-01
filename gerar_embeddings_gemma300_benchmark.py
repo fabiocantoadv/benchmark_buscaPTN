@@ -44,26 +44,37 @@ QUERY_INSTRUCTION = (
     "tecnicamente relevantes:"
 )
 
+# Corpus do benchmark piloto: 1.000 documentos com IPC, descricoes PT e
+# hierarquia, avaliado contra o gabarito julgado (qrels_piloto.tsv).
+CORPUS = BASE_DIR / "corpus_piloto_ipc.tsv"
+
 DOC_VARIANTS = {
     "tr": {
-        "input": BASE_DIR / "patentes_benchmark_amostra_1000.tsv",
+        "input": CORPUS,
         "text_column": "texto_para_embedding",
         "output_name": "gemma300_tr_docs",
     },
-    "ipc_hierarquia": {
-        "input": BASE_DIR / "patentes_benchmark_amostra_1000_ipc_pt.tsv",
-        "text_column": "texto_para_embedding_ipc_hierarquia_pt",
-        "output_name": "gemma300_tr_ipc_hierarquia_pt_docs",
+    "ipc_grupo": {
+        "input": CORPUS,
+        "text_column": "texto_para_embedding_ipc_grupo_pt",
+        "output_name": "gemma300_tr_ipc_grupo_pt_docs",
     },
     "ipc_direto": {
-        "input": BASE_DIR / "patentes_benchmark_amostra_1000_ipc_pt.tsv",
+        "input": CORPUS,
         "text_column": "texto_para_embedding_ipc_pt",
         "output_name": "gemma300_tr_ipc_direto_pt_docs",
     },
+    "ipc_hierarquia": {
+        "input": CORPUS,
+        "text_column": "texto_para_embedding_ipc_hierarquia_pt",
+        "output_name": "gemma300_tr_ipc_hierarquia_pt_docs",
+    },
 }
 
+# Piloto: so as 3 queries do gabarito julgado. Para voltar as 45, troque por
+# "queries_benchmark_patentes.tsv" e use o qrels correspondente.
 QUERY_CONFIG = {
-    "input": BASE_DIR / "queries_benchmark_patentes.tsv",
+    "input": BASE_DIR / "queries_piloto.tsv",
     "text_column": "query_text",
     "output_name": "gemma300_queries",
 }

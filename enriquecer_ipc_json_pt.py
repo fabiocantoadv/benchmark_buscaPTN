@@ -119,6 +119,21 @@ def ipc_hierarchy_with_descriptions(
 
 
 def main() -> int:
+    global DEFAULT_INPUT, DEFAULT_OUTPUT, DEFAULT_MISSING, DEFAULT_SUMMARY, DEFAULT_IPC_JSON
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--entrada", type=Path, default=DEFAULT_INPUT)
+    ap.add_argument("--saida", type=Path, default=None)
+    ap.add_argument("--faltantes", type=Path, default=DEFAULT_MISSING)
+    ap.add_argument("--resumo", type=Path, default=None)
+    ap.add_argument("--ipc-json", type=Path, default=DEFAULT_IPC_JSON)
+    args = ap.parse_args()
+    DEFAULT_INPUT = args.entrada
+    DEFAULT_IPC_JSON = args.ipc_json
+    DEFAULT_MISSING = args.faltantes
+    DEFAULT_OUTPUT = args.saida or DEFAULT_INPUT.with_name(DEFAULT_INPUT.stem + "_ipc_pt.tsv")
+    DEFAULT_SUMMARY = args.resumo or DEFAULT_INPUT.with_name(DEFAULT_INPUT.stem + "_ipc_pt_resumo.tsv")
+
     if not DEFAULT_INPUT.exists():
         raise FileNotFoundError(f"Arquivo de entrada nao encontrado: {DEFAULT_INPUT}")
     if not DEFAULT_IPC_JSON.exists():

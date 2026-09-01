@@ -11,3 +11,11 @@ venv/
 
 # Sistema
 .DS_Store
+
+# Fonte bruta da amostra e intermediarios do corpus piloto.
+# O que o colega precisa para rodar o notebook e o corpus final
+# (corpus_piloto_ipc.tsv), que fica versionado.
+amostra_50000.xlsx
+corpus_piloto_bruto.tsv
+corpus_piloto_bruto_nao_encontradas.tsv
+corpus_piloto.tsv
