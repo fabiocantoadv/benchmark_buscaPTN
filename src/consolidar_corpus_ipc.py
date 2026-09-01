@@ -9,21 +9,23 @@ Rodar DEPOIS de:
 Verifica cobertura, garante que nenhum documento julgado se perdeu e regrava
 qrels_piloto.tsv sobre o corpus final.
 """
-import csv, sys
+import csv, re, sys
 from pathlib import Path
 import pandas as pd
 
-ENTRADA = Path(sys.argv[1] if len(sys.argv) > 1 else "corpus_piloto_ipc.tsv")
+DADOS = Path(__file__).resolve().parent.parent / "dados"
+ENTRADA = Path(sys.argv[1]) if len(sys.argv) > 1 else DADOS / "corpus_piloto_ipc.tsv"
 
 def ler(p):
     return pd.read_csv(p, sep="\t", dtype=str, low_memory=False,
                        quoting=csv.QUOTE_NONE, escapechar="\\")
 
 novo = ler(ENTRADA)
-antigo = ler("corpus_piloto.tsv")
-pool = ler("pool_piloto_gabarito.tsv").fillna("")
+# lista esperada: os 1.000 numeros congelados do corpus piloto
+esperados_raw = [l.strip() for l in (DADOS / "numeros_corpus_piloto.txt").read_text(encoding="utf-8").splitlines() if l.strip()]
+pool = ler(DADOS / "pool_piloto_gabarito.tsv").fillna("")
 
-esperados = set(antigo.num_pedido_normalizado)
+esperados = {"BR" + re.sub(r"[^0-9]", "", n) for n in esperados_raw}
 obtidos = set(novo.num_pedido_normalizado.dropna())
 perdidos = esperados - obtidos
 julgados = set(pool.num_pedido_normalizado)
@@ -59,5 +61,5 @@ for qid in sorted(pool.query_id.unique()):
                        "julgado" if doc in notas else "presumido"))
 pd.DataFrame(linhas, columns=["query_id", "num_pedido_normalizado", "relevance",
                               "origem_julgamento"]).to_csv(
-    "qrels_piloto.tsv", sep="\t", index=False, quoting=csv.QUOTE_NONE, escapechar="\\")
+    DADOS / "qrels_piloto.tsv", sep="\t", index=False, quoting=csv.QUOTE_NONE, escapechar="\\")
 print("qrels_piloto.tsv regravado sobre", ENTRADA.name)

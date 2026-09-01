@@ -19,6 +19,12 @@ Sem coluna de IPC no xlsx, so a variante `tr` (titulo + resumo) existe neste
 corpus; a comparacao entre variantes de texto continua restrita ao corpus de
 1.000 enriquecido.
 """
+# NOTA: este script construiu o corpus piloto a partir da amostra original
+# de 1.000 e do amostra_50000.xlsx, arquivos que nao estao mais no
+# repositorio (abordagem por regras, removida). O sorteio dos distratores
+# esta congelado em dados/numeros_corpus_piloto.txt; para reproduzir o
+# corpus use src/rodar_export_ipc.sh. Mantido como registro do metodo.
+
 import csv
 import pandas as pd
 

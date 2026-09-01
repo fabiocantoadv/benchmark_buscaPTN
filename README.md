@@ -1,147 +1,95 @@
 # Benchmark de busca semântica em patentes
 
-Benchmark para avaliar recuperação semântica sobre uma amostra de 1.000 pedidos
-de patente do INPI, com 45 queries em português e embeddings do
-[EmbeddingGemma-300M](https://huggingface.co/google/embeddinggemma-300m).
+Avalia recuperação semântica sobre patentes do INPI, comparando BM25 e
+[EmbeddingGemma-300M](https://huggingface.co/google/embeddinggemma-300m) e
+medindo o efeito de enriquecer o texto do documento com descrições de CIP/IPC
+em português.
 
-## Como rodar no Colab
+## Estado atual
 
-Abra `notebooks/benchmark_patentes_colab.ipynb` no Google Colab. O notebook
-clona este repositório, gera os embeddings, roda a busca e calcula as métricas
-de ponta a ponta em poucos minutos numa GPU T4.
+Benchmark **piloto**: 3 queries, corpus de 1.000 documentos, gabarito julgado
+manualmente (escala 0–3). O gabarito anterior, gerado por regras de IPC, foi
+abandonado — marcava 17% do corpus como relevante, o que fazia um ranqueador
+aleatório alcançar P@10 ≈ 0,21 e tornava a avaliação de variantes com IPC
+circular. Ele continua no histórico do git, até o commit `f3e68eb`.
 
-**Pré-requisitos por pessoa:**
+| | gabarito por regras | gabarito piloto |
+|---|---|---|
+| R mediano (relevantes por query) | 172 / 1.000 | 28 / 1.000 |
+| P@10 de um ranqueador aleatório | 0,21 | 0,025 |
 
-1. Ambiente de execução com GPU (`Ambiente de execução > Alterar o tipo de ambiente de execução > GPU`).
-2. O modelo `google/embeddinggemma-300m` é *gated*: aceitar a licença em
-   https://huggingface.co/google/embeddinggemma-300m e criar um token em
-   https://huggingface.co/settings/tokens.
-3. Cadastrar o token nos Secrets do Colab com o nome `HF_TOKEN`. Secrets não são
-   compartilhados entre contas — cada pessoa cadastra o seu.
+**Pendências, em ordem:** revisar os 135 julgamentos pré-classificados por LLM ·
+rodar os embeddings no Colab · refazer o pool com os rankings densos · escalar
+para 9–12 queries.
+
+Detalhes do método, limitações e como revisar: **[`docs/gabarito-piloto.md`](docs/gabarito-piloto.md)**.
 
 ## Estrutura
 
-### Corpus
+```
+dados/     corpus, queries, gabarito e qrels
+src/       módulos de avaliação, geração de embeddings e montagem do corpus
+docs/      guia do gabarito e comandos operacionais
+notebooks/ pipeline completo no Colab
+```
+
+### `dados/`
 
 | arquivo | conteúdo |
 |---|---|
-| `patentes_benchmark_amostra_1000.tsv` | 1.000 pedidos com título, resumo, IPC e `texto_para_embedding` |
-| `patentes_benchmark_amostra_1000_ipc_pt.tsv` | o mesmo, enriquecido com descrições IPC em português e a hierarquia completa |
-| `ipc_simbolos_sem_descricao_json_pt.tsv` | 358 símbolos IPC sem descrição em PT encontrados na amostra |
-| `*_resumo.tsv` | estatísticas de cobertura das extrações |
+| `corpus_piloto_ipc.tsv` | **o corpus** — 1.000 patentes com IPC, descrições PT e hierarquia; 4 variantes de texto |
+| `queries_piloto.tsv` | as 3 queries do piloto |
+| `qrels_piloto.tsv` | julgamentos usados na avaliação (3.000 linhas; `origem_julgamento` distingue julgado de presumido) |
+| `pool_piloto_gabarito.tsv` | **planilha de revisão** — 135 candidatos com nota do LLM, justificativa e colunas em branco para o revisor |
+| `queries_benchmark_patentes.tsv` | as 45 queries do desenho completo, para quando escalar |
+| `numeros_corpus_piloto.txt` | os 1.000 números que definem o corpus (congela o sorteio dos distratores) |
+| `*_resumo.tsv`, `ipc_simbolos_sem_descricao_*` | estatísticas de cobertura |
 
-Cobertura: 1.000/1.000 pedidos encontrados, 985 com resumo, 82% dos símbolos IPC
-com descrição em PT (96% considerando a hierarquia).
+### Variantes de texto no corpus
 
-### Queries e gabaritos
-
-| arquivo | conteúdo |
-|---|---|
-| `queries_benchmark_patentes.tsv` | 45 queries — 3 temas (câncer/fármacos, 5G, purificação de água) × 3 tipos (curta, técnica, linguagem natural) × 5 |
-| `qrels_candidatos_queries_benchmark.tsv` | 45.000 julgamentos (45 × 1.000), relevância 0/1/2 |
-| `gabaritos_candidatos_revisao.tsv` | 90 candidatos por query selecionados para revisão manual |
-
-> **Atenção — o gabarito atual não discrimina.** O qrels gerado por regras marca
-> em média 17% do corpus como relevante para cada query (R mediano de 172 em
-> 1.000 documentos). Nesse regime:
->
-> - um ranqueador **aleatório** já obtém P@10 ≈ 0,21;
-> - `Recall@k` fica preso ao teto `k/R` e mede o tamanho do conjunto relevante,
->   não a qualidade do ranqueamento — use R-Precision ou nDCG;
-> - avaliar variantes enriquecidas com IPC contra um gabarito derivado de IPC é
->   circular, e o efeito é mensurável (veja abaixo).
->
-> Rode `ab.diagnosticar_qrels(qrels)` antes de interpretar qualquer métrica. A
-> reconstrução do gabarito por pooling é o passo pendente mais importante do
-> projeto.
-
-### Resultados da primeira execução (gabarito por regras, 31/08/2026)
-
-| sistema | nDCG@10 | R-Precision |
+| coluna | conteúdo | mediana |
 |---|---|---|
-| BM25 (título+resumo) | 0,587 | 0,322 |
-| BM25 (+ IPC hierarquia) | 0,613 | 0,373 |
-| EmbeddingGemma `tr` | 0,684 | — |
-| EmbeddingGemma `ipc_direto` | 0,697 | — |
-| EmbeddingGemma `ipc_hierarquia` | 0,702 | — |
+| `texto_para_embedding` | título + resumo | 143 palavras |
+| `texto_para_embedding_ipc_pt` | + descrição dos símbolos IPC da patente | 178 |
+| `texto_para_embedding_ipc_grupo_pt` | + descrição de grupo e subgrupo | 208 |
+| `texto_para_embedding_ipc_hierarquia_pt` | + cadeia hierárquica completa | 322 |
 
-Leitura: o modelo denso supera o BM25 em cerca de 0,10 de nDCG@10 — este é o
-resultado mais sólido da execução. Já a vantagem das variantes com IPC **não se
-sustenta**: o ganho é pequeno (+0,018), desaparece quando se avalia só sobre
-`relevance=2` (onde o sinal chega a inverter) e aparece **também no BM25**, que
-não tem semântica alguma. É comportamento de viés circular, não de qualidade.
-
-### Código
+### `src/`
 
 | arquivo | função |
 |---|---|
-| `export_amostra_benchmark_tsv.sql` | extrai a amostra do banco Postgres do INPI |
-| `enriquecer_ipc_json_pt.py` | acrescenta descrições IPC em português e hierarquia |
-| `gerar_gabaritos_candidatos.py` | gera o qrels por regras e a amostra para revisão |
-| `gerar_embeddings_gemma300_benchmark.py` | gera embeddings localmente (Mac, MPS) |
-| `avaliar_benchmark.py` | busca por similaridade e métricas — nDCG@k, R-Precision, MRR, P@k, diagnóstico do gabarito e teste pareado |
+| `avaliar_benchmark.py` | busca por similaridade e métricas — nDCG, R-Precision, MRR, P@k, diagnóstico do gabarito, teste pareado |
 | `baseline_bm25.py` | baseline lexical BM25 em português, sem dependências extras |
-| `gerar_pool_revisao.py` | monta o pool de julgamento (completo e diferencial) e consolida o gabarito revisado |
-| `notebooks/benchmark_patentes_colab.ipynb` | pipeline completo no Colab |
+| `gerar_embeddings_gemma300_benchmark.py` | gera os embeddings (Mac/MPS ou Colab/GPU) |
+| `gerar_pool_revisao.py` | pool de julgamento completo e diferencial |
+| `rodar_export_ipc.sh` + `export_corpus_piloto_ipc.sql` | reexportam o corpus do Postgres com IPC |
+| `enriquecer_ipc_json_pt.py` | acrescenta descrições IPC em PT e hierarquia |
+| `gerar_variante_ipc_grupo.py` | gera a variante `ipc_grupo` |
+| `consolidar_corpus_ipc.py` | confere cobertura e regrava o qrels |
+| `gerar_pool_piloto.py`, `montar_corpus_piloto.py` | como o corpus e o pool foram construídos (histórico; entradas não estão mais no repo) |
 
-## Variantes de texto
+## Como rodar
 
-O benchmark compara três formas de representar cada patente:
+**Colab** — abra `notebooks/benchmark_patentes_colab.ipynb`. Ele clona o repo,
+gera os embeddings das 4 variantes e calcula as métricas. Requer GPU, aceitar a
+licença do `google/embeddinggemma-300m` e um `HF_TOKEN` nos Secrets do Colab
+(cada pessoa cadastra o seu).
 
-| variante | texto |
-|---|---|
-| `tr` | título + resumo |
-| `ipc_direto` | título + resumo + descrições IPC em PT |
-| `ipc_hierarquia` | título + resumo + hierarquia IPC completa em PT |
+**Local, só BM25** — não precisa de GPU nem de token:
 
-## Notas técnicas
+```python
+import sys; sys.path.insert(0, "src")
+import avaliar_benchmark as ab, baseline_bm25 as bm
+qrels = ab.carregar_qrels("dados/qrels_piloto.tsv")
+r = bm.buscar_bm25("dados/corpus_piloto_ipc.tsv", "dados/queries_piloto.tsv",
+                   coluna_texto="texto_para_embedding")
+ab.avaliar(r, qrels)["agregado"]
+```
 
-- Os embeddings são gravados normalizados (L2), então a similaridade de cosseno
-  é o produto interno. Com 45 queries × 1.000 documentos a busca é uma
-  multiplicação de matrizes em numpy — não há necessidade de FAISS nessa escala.
-- O EmbeddingGemma tem prompts nativos distintos para documento e consulta
-  (`encode_document` / `encode_query`). O notebook usa os prompts nativos por
-  padrão; o toggle `USAR_PROMPTS_NATIVOS = False` reproduz a abordagem de
-  instrução manual em PT do script local, para comparação. Não misture as duas
-  abordagens entre documentos e queries — isso desalinha os vetores.
-- A pasta `embeddings/` não é versionada: são ~3 MB por coleção e a regeração
-  leva poucos minutos.
+Rode `ab.diagnosticar_qrels(qrels)` antes de interpretar qualquer métrica.
 
 ## Trabalho em dupla
 
-Cada pessoa roda a própria cópia do notebook no Colab e envia mudanças por
-commit. Os arquivos em `resultados/` recebem carimbo de data e hora para que
-duas execuções não se sobrescrevam.
-
-
-## Qual variante de texto usar?
-
-Com o gabarito atual **não é possível aferir**: ele é derivado de IPC, e as
-variantes se distinguem justamente por quanta descrição de IPC carregam. A
-comparação é circular, e o BM25 confirma o mecanismo — um sistema sem semântica
-alguma também melhora ao receber IPC, e melhora mais (+0,027) que as variantes
-densas (+0,018).
-
-Fatos mensuráveis que independem do gabarito:
-
-| variante | tamanho mediano | proporção de IPC no texto |
-|---|---|---|
-| `tr` | 149 palavras | — |
-| `ipc_direto` | 183 palavras | 17% |
-| `ipc_hierarquia` | 312 palavras | 53% |
-
-Na `ipc_hierarquia` mais da metade do texto vetorizado é descrição de
-classificação compartilhada entre documentos da mesma classe — o mesmo
-mecanismo de diluição que prejudica queries curtas. Além disso, 380 dos 1.000
-documentos têm ao menos um símbolo IPC sem descrição em português, então o
-enriquecimento não é uniforme: é uma variável de confusão dentro da própria
-variante.
-
-**Recomendação provisória: `tr`**, por parcimônia — o enriquecimento custa 2,1×
-em tokens, aplica-se de forma desigual a 38% do corpus e não demonstrou ganho.
-
-Para decidir com evidência, use o **pool diferencial** (seção 7e do notebook):
-julga-se apenas os documentos em que as variantes discordam (~340 pares no
-top-10, contra 45.000 do qrels completo), produzindo um gabarito pequeno,
-humano e não derivado de IPC. Serve para comparação relativa entre variantes,
-não para reportar nDCG absoluto.
+Cada pessoa roda a própria cópia do notebook e envia mudanças por commit. Os
+arquivos em `resultados/` recebem carimbo de data e hora para que duas execuções
+não se sobrescrevam. `embeddings/` e `resultados/` não são versionados.

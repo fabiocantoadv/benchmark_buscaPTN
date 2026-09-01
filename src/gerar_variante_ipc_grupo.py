@@ -13,7 +13,8 @@ import csv, re, sys
 from pathlib import Path
 import pandas as pd
 
-ARQ = Path(sys.argv[1] if len(sys.argv) > 1 else "corpus_piloto_ipc.tsv")
+DADOS = Path(__file__).resolve().parent.parent / "dados"
+ARQ = Path(sys.argv[1]) if len(sys.argv) > 1 else DADOS / "corpus_piloto_ipc.tsv"
 INICIO = re.compile(r"(?:^|; )([A-H]\d{2}[A-Z]\s?\d+/\d+):\s")
 
 def niveis_grupo(hierarquia: str) -> str:

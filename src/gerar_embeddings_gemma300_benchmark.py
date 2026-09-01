@@ -29,7 +29,8 @@ import numpy as np
 import pandas as pd
 
 
-BASE_DIR = Path(__file__).resolve().parent
+REPO_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = REPO_DIR / "dados"
 MODEL_NAME_DEFAULT = "google/embeddinggemma-300m"
 DIMENSAO_ESPERADA = 768
 
@@ -284,7 +285,7 @@ def main() -> int:
 
     input_path = args.input or defaults["input"]
     text_column = args.text_column or defaults["text_column"]
-    output_dir = args.output_dir or (BASE_DIR / "embeddings" / defaults["output_name"])
+    output_dir = args.output_dir or (REPO_DIR / "embeddings" / defaults["output_name"])
     output_dir.mkdir(parents=True, exist_ok=True)
 
     torch_module, SentenceTransformer = importar_dependencias_modelo()

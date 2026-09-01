@@ -2,7 +2,7 @@
 # Exporta os 1.000 do corpus piloto com IPC, a partir do Postgres em Docker.
 # Uso:  bash rodar_export_ipc.sh [container] [usuario] [banco]
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."   # raiz do repo
 
 CONTAINER="${1:-patentes-postgres}"
 PGUSER_IN="${2:-}"
@@ -51,17 +51,17 @@ docker exec "$CONTAINER" psql -U "$PGUSER" -d "$PGDB" -Atc \
         exit 1; }; }
 
 echo "== enviando lista e SQL"
-docker cp numeros_corpus_piloto.txt "$CONTAINER":/tmp/numeros_corpus_piloto.txt
-docker cp export_corpus_piloto_ipc.sql "$CONTAINER":/tmp/export_corpus_piloto_ipc.sql
+docker cp dados/numeros_corpus_piloto.txt "$CONTAINER":/tmp/numeros_corpus_piloto.txt
+docker cp src/export_corpus_piloto_ipc.sql "$CONTAINER":/tmp/export_corpus_piloto_ipc.sql
 
 echo "== rodando o export"
 docker exec "$CONTAINER" psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
   -f /tmp/export_corpus_piloto_ipc.sql
 
 echo "== trazendo os arquivos"
-docker cp "$CONTAINER":/tmp/corpus_piloto_bruto.tsv .
-docker cp "$CONTAINER":/tmp/corpus_piloto_bruto_nao_encontradas.tsv . 2>/dev/null || true
+docker cp "$CONTAINER":/tmp/corpus_piloto_bruto.tsv dados/
+docker cp "$CONTAINER":/tmp/corpus_piloto_bruto_nao_encontradas.tsv dados/ 2>/dev/null || true
 
 echo
-echo "OK. Registros em corpus_piloto_bruto.tsv: $(( $(wc -l < corpus_piloto_bruto.tsv) - 1 ))"
+echo "OK. Registros em corpus_piloto_bruto.tsv: $(( $(wc -l < dados/corpus_piloto_bruto.tsv) - 1 ))"
 echo "Pode avisar o Claude — ele faz o enriquecimento de IPC e a consolidacao daqui."

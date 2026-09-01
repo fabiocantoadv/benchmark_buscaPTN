@@ -4,6 +4,12 @@
 Sistemas do pool (sem GPU): BM25 sobre as 3 variantes de texto.
 Quando os embeddings densos existirem, basta acrescentar os rankings ao dict.
 """
+# NOTA: este script construiu o corpus piloto a partir da amostra original
+# de 1.000 e do amostra_50000.xlsx, arquivos que nao estao mais no
+# repositorio (abordagem por regras, removida). O sorteio dos distratores
+# esta congelado em dados/numeros_corpus_piloto.txt; para reproduzir o
+# corpus use src/rodar_export_ipc.sh. Mantido como registro do metodo.
+
 import csv, sys
 import pandas as pd
 import baseline_bm25 as bm

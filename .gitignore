@@ -19,3 +19,5 @@ amostra_50000.xlsx
 corpus_piloto_bruto.tsv
 corpus_piloto_bruto_nao_encontradas.tsv
 corpus_piloto.tsv
+dados/corpus_piloto_bruto.tsv
+dados/corpus_piloto_bruto_nao_encontradas.tsv

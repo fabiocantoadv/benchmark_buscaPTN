@@ -8,14 +8,14 @@ P@10 ≈ 0,21) por um gabarito julgado sobre um corpus recomposto a partir de
 
 | arquivo | conteúdo |
 |---|---|
-| `gerar_pool_piloto.py` | monta o pool inicial sobre a amostra enriquecida de 1.000 (união dos top-12 de 3 variantes BM25 + sorteio) |
-| `pool_piloto_gabarito.tsv` | 135 julgamentos com `relevancia_llm`, `justificativa_llm` e colunas em branco para revisão |
-| `montar_corpus_piloto.py` | monta `corpus_piloto.tsv` (1.000 docs) e `qrels_piloto.tsv` a partir do pool |
+| `src/gerar_pool_piloto.py` | monta o pool inicial sobre a amostra enriquecida de 1.000 (união dos top-12 de 3 variantes BM25 + sorteio) |
+| `dados/pool_piloto_gabarito.tsv` | 135 julgamentos com `relevancia_llm`, `justificativa_llm` e colunas em branco para revisão |
+| `src/montar_corpus_piloto.py` | monta `corpus_piloto.tsv` (1.000 docs) e `dados/qrels_piloto.tsv` a partir do pool |
 | `corpus_piloto.tsv` | 1.000 documentos, texto do xlsx (só a variante `tr`) |
-| `rodar_export_ipc.sh` | reexporta esses mesmos 1.000 do Postgres com IPC |
-| `corpus_piloto_ipc.tsv` | **corpus oficial** — os 1.000 com IPC, descrições PT e hierarquia |
-| `consolidar_corpus_ipc.py` | confere cobertura e regrava o qrels sobre o corpus oficial |
-| `qrels_piloto.tsv` | 3.000 julgamentos, com `origem_julgamento` = julgado \| presumido |
+| `src/rodar_export_ipc.sh` | reexporta esses mesmos 1.000 do Postgres com IPC |
+| `dados/corpus_piloto_ipc.tsv` | **corpus oficial** — os 1.000 com IPC, descrições PT e hierarquia |
+| `src/consolidar_corpus_ipc.py` | confere cobertura e regrava o qrels sobre o corpus oficial |
+| `dados/qrels_piloto.tsv` | 3.000 julgamentos, com `origem_julgamento` = julgado \| presumido |
 
 Queries: `QF002` (técnica, câncer), `QA006` (natural, água), `QG001` (curta, 5G).
 
@@ -33,12 +33,12 @@ julgados. A semente do corpus são os 89 julgados da rodada inicial, de modo que
 o corpus não muda quando o pool cresce.
 
 O xlsx não tem coluna de IPC. Por isso os mesmos 1.000 foram reexportados do
-Postgres (`rodar_export_ipc.sh` → `enriquecer_ipc_json_pt.py` →
-`consolidar_corpus_ipc.py`), o que devolveu título, resumo e IPC na mesma
+Postgres (`src/rodar_export_ipc.sh` → `src/enriquecer_ipc_json_pt.py` →
+`src/consolidar_corpus_ipc.py`), o que devolveu título, resumo e IPC na mesma
 normalização da amostra original e recuperou as três variantes de texto.
 Cobertura: 1.000/1.000 encontrados, IPC em 1.000, descrição PT em 950 documentos
 (666 com todos os símbolos descritos), 26 sem resumo — um deles julgado
-(`BR122020017793`). **O corpus oficial é `corpus_piloto_ipc.tsv`.**
+(`BR122020017793`). **O corpus oficial é `dados/corpus_piloto_ipc.tsv`.**
 
 ## Escala de relevância (0–3)
 
@@ -64,7 +64,7 @@ Cobertura: 1.000/1.000 encontrados, IPC em 1.000, descrição PT em 950 document
 | % do corpus relevante | 17% | 2,8% |
 | P@10 de um ranqueador aleatório | 0,21 | 0,025 |
 
-BM25 sobre `corpus_piloto_ipc.tsv`:
+BM25 sobre `dados/corpus_piloto_ipc.tsv`:
 
 | variante | nDCG@10 | R-Prec | QF002 | QA006 | QG001 |
 |---|---|---|---|---|---|
@@ -83,7 +83,7 @@ top-12 das variantes com IPC).
 
 ## Como revisar
 
-1. Abrir `pool_piloto_gabarito.tsv` (separador tab). O `titulo`/`resumo` ali é o
+1. Abrir `dados/pool_piloto_gabarito.tsv` (separador tab). O `titulo`/`resumo` ali é o
    mesmo texto que os sistemas veem.
 2. Ler contra `query_text` e `criterio_relevancia_alta`.
 3. Preencher `relevancia_final` e `revisor`. Em branco aceita a nota do LLM.
@@ -106,7 +106,7 @@ Casos que pedem atenção humana:
    candidatos inéditos — entre eles um ADC anti-HER3 com ligante explícito em 1º
    lugar para QF002, que teria contado como irrelevante. Quando os embeddings
    densos estiverem gerados, acrescente os rankings ao dicionário `sistemas` em
-   `gerar_pool_piloto.py`, refaça o pool sobre `corpus_piloto.tsv` e julgue os
+   `src/gerar_pool_piloto.py`, refaça o pool sobre `corpus_piloto.tsv` e julgue os
    documentos novos antes de comparar denso × léxico.
 2. **Distratores presumidos irrelevantes.** Os 911 sorteados não foram julgados.
    Sorteá-los fora da amostra temática reduz o risco, mas não o elimina.
@@ -126,7 +126,7 @@ Casos que pedem atenção humana:
 | `ipc_direto` | + descrição só dos símbolos listados na patente | 178 |
 | `ipc_hierarquia` | + cadeia hierárquica completa | 322 |
 
-`ipc_grupo` (gerada por `gerar_variante_ipc_grupo.py`) recupera o grupo
+`ipc_grupo` (gerada por `src/gerar_variante_ipc_grupo.py`) recupera o grupo
 principal que o `ipc_direto` perde: quando a patente traz só `A61K 47/68`, o
 `ipc_direto` mostra "o agente de modificação sendo um anticorpo…" sem o
 referente, enquanto o `ipc_grupo` traz junto `A61K 47/00 - Preparações
@@ -160,9 +160,9 @@ queries e pool ainda enviesado, é hipótese com mecanismo identificado.
 ## Pendente: a parte densa
 
 Tudo acima é **BM25**. Os embeddings do EmbeddingGemma não foram gerados nesta
-rodada — o modelo é *gated* e exige GPU e token HF. `gerar_embeddings_gemma300_benchmark.py`
+rodada — o modelo é *gated* e exige GPU e token HF. `src/gerar_embeddings_gemma300_benchmark.py`
 e `notebooks/benchmark_patentes_colab.ipynb` já estão apontados para
-`corpus_piloto_ipc.tsv`, `queries_piloto.tsv` e `qrels_piloto.tsv`, com a
+`dados/corpus_piloto_ipc.tsv`, `dados/queries_piloto.tsv` e `dados/qrels_piloto.tsv`, com a
 variante `ipc_grupo` incluída — basta rodar o notebook no Colab.
 
 Ao comparar denso × léxico, lembre que o pool foi construído só com BM25: refaça

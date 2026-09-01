@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent / "dados"
 DEFAULT_INPUT = BASE_DIR / "patentes_benchmark_amostra_1000.tsv"
 DEFAULT_OUTPUT = BASE_DIR / "patentes_benchmark_amostra_1000_ipc_pt.tsv"
 DEFAULT_MISSING = BASE_DIR / "ipc_simbolos_sem_descricao_json_pt.tsv"
