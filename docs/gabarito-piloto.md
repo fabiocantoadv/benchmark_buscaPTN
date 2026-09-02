@@ -469,3 +469,27 @@ menos de 10%. O nDCG cai de 0,725 para 0,546 (25%), e o do BM25 despenca de
 0,761 para 0,177 (77%). O sinal semântico que o modelo captura sobrevive à
 mudança de vocabulário; o que se degrada é a ordenação na vizinhança do topo,
 não a capacidade de reconhecer o documento certo.
+
+## O híbrido ingênuo não funciona
+
+Fusão recíproca de posto (RRF, k=60) entre BM25 e Gemma, variante `tr`:
+
+| tipo | BM25 | Gemma | RRF |
+|---|---|---|---|
+| técnica | 0,761 | 0,725 | **0,778** |
+| curta | 0,757 | 0,622 | **0,780** |
+| específica | **0,871** | 0,826 | 0,864 |
+| natural | 0,177 | **0,546** | 0,335 |
+| **geral (18)** | 0,552 | **0,666** | 0,620 |
+
+A fusão ganha onde os dois sistemas já são competentes — técnicas e curta — e
+**destrói o ganho onde ele importa**: nas naturais, misturar o BM25 derruba de
+0,546 para 0,335. O RRF é simétrico: dá o mesmo peso a um sistema que, naquelas
+consultas, é quase inútil (0,177). Em QD002 o Gemma sozinho marca 0,826 e a
+fusão, 0,240.
+
+Conclusão: a recomendação híbrida só se sustenta se o peso for **adaptativo ao
+tipo de consulta**, ou se a combinação for aprendida dentro de um modelo, em vez
+de fundida por posto depois do fato. Fusão simétrica de dois sistemas com
+desempenho tão desigual por tipo de consulta é uma má ideia, e este benchmark
+mede isso diretamente.
