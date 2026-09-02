@@ -402,3 +402,70 @@ não traz. A recomendação prática que sai daqui é híbrida, não substitutiv
 3. 18 queries em 9 temas; o efeito nas naturais é grande e estável, mas as
    diferenças pequenas (variantes de IPC, déficit nas técnicas) continuam dentro
    do ruído.
+
+## O que o enriquecimento por IPC faz ao espaço vetorial
+
+### Métricas do Gemma entre as quatro variantes
+
+| tipo | `tr` | `ipc_grupo` | `ipc_direto` | `ipc_hierarquia` |
+|---|---|---|---|---|
+| técnica | 0,725 | **0,757** | 0,748 | 0,754 |
+| natural | 0,546 | 0,592 | **0,593** | 0,539 |
+| específica | **0,826** | 0,809 | 0,799 | 0,755 |
+| curta | 0,622 | **0,800** | 0,693 | 0,554 |
+
+Ganho sobre `tr`: `ipc_grupo` +0,033 nas técnicas e +0,047 nas naturais;
+`ipc_direto` +0,023 e +0,047; `ipc_hierarquia` +0,029 e **−0,007** (positivo em
+apenas 1 das 7 naturais). Sobre subconjuntos de 14 ou mais das 18 queries,
+`ipc_grupo` vence em 3.810 de 4.048 e o `tr` em nenhum — para o modelo denso,
+enriquecer ajuda; a questão é com quanto.
+
+### A geometria
+
+Similaridade de cosseno média entre todos os pares do corpus (974 documentos):
+
+| variante | sim. média | mesma subclasse IPC | outra subclasse | separação | deslocamento vs `tr` |
+|---|---|---|---|---|---|
+| `tr` | 0,578 | 0,642 | 0,576 | 0,066 | — |
+| `ipc_direto` | 0,583 | 0,662 | 0,581 | 0,081 | 0,955 |
+| `ipc_grupo` | 0,589 | 0,683 | 0,586 | 0,097 | 0,942 |
+| `ipc_hierarquia` | 0,611 | 0,728 | 0,607 | **0,121** | 0,900 |
+
+O enriquecimento faz exatamente o que se esperaria: **aproxima entre si os
+documentos da mesma classe**. A separação intra-classe menos inter-classe quase
+dobra da `tr` para a `ipc_hierarquia` (0,066 → 0,121), e é a hierarquia que mais
+desloca os vetores (cosseno 0,900 com o vetor original do mesmo documento).
+
+Isso é útil quando a consulta mira uma classe inteira e nocivo quando ela precisa
+distinguir dentro da classe — e explica por que a `ipc_hierarquia` é a pior das
+três enriquecidas nas consultas naturais: ela agrupa por classe a ponto de
+apagar a distinção interna.
+
+### A dissociação
+
+Margem de separação do ponto de vista da consulta, isto é
+`sim(query, relevantes) − sim(query, irrelevantes)`:
+
+| tipo | `tr` | `ipc_grupo` | `ipc_direto` | `ipc_hierarquia` |
+|---|---|---|---|---|
+| técnica | 0,1139 | 0,1146 | 0,1139 | 0,1125 |
+| natural | 0,1024 | 0,1043 | 0,1031 | 0,1023 |
+| específica | 0,1484 | 0,1452 | 0,1486 | 0,1375 |
+
+**As margens são praticamente idênticas — diferenças na terceira casa decimal.**
+O enriquecimento move os documentos uns em relação aos outros de forma
+substancial, mas quase não altera o quanto a consulta separa relevante de
+irrelevante. O ganho de nDCG das variantes com IPC (+0,03 a +0,05) vem de
+reordenar empates próximos, não de melhorar o sinal consulta-documento.
+
+Isso qualifica bastante a recomendação: o enriquecimento por IPC no modelo denso
+é um efeito de reordenação marginal, e o custo é 2,1× em tokens na
+`ipc_hierarquia`.
+
+### Por que o denso resiste à paráfrase
+
+A margem do Gemma cai pouco entre consulta técnica e natural: 0,114 → 0,102,
+menos de 10%. O nDCG cai de 0,725 para 0,546 (25%), e o do BM25 despenca de
+0,761 para 0,177 (77%). O sinal semântico que o modelo captura sobrevive à
+mudança de vocabulário; o que se degrada é a ordenação na vizinhança do topo,
+não a capacidade de reconhecer o documento certo.
