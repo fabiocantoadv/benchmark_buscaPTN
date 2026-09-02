@@ -167,3 +167,46 @@ variante `ipc_grupo` incluída — basta rodar o notebook no Colab.
 
 Ao comparar denso × léxico, lembre que o pool foi construído só com BM25: refaça
 o pool com os rankings densos e julgue os documentos novos antes de reportar.
+
+## Queries derivadas (subconjunto estrito)
+
+Três queries mais específicas, cada uma um subconjunto de uma das originais.
+A relevância é **aninhada**: todo documento relevante para a filha também é
+relevante para a mãe (verificado — 11/11, 7/7 e 10/10). Isso permite medir se o
+sistema distingue o específico dentro do geral.
+
+| filha | mãe | query | R (rel≥1) |
+|---|---|---|---|
+| `QF002E` | QF002 | conjugado anticorpo-fármaco direcionado a HER2 para tumor sólido | 11 |
+| `QA006E` | QA006 | remoção de metais pesados de lixiviado de aterro sanitário | 7 |
+| `QG001E` | QG001 | concessão configurada de uplink e escalonamento semi-persistente em 5G NR | 10 |
+
+A coluna `query_derivada_de` em `dados/queries_piloto.tsv` registra a filiação.
+Dois documentos entraram no pool à mão (`BR102021004721` em QA006E,
+`BR112019001900` em QG001E): nenhuma variante os recuperou, e sem isso contariam
+como irrelevantes. Três documentos trazidos pelas filhas foram julgados também
+nas mães, para fechar o aninhamento (`origem = herdado_da_derivada`).
+
+### nDCG@10 por query — BM25
+
+| variante | QF002 | QF002E | QA006 | QA006E | QG001 | QG001E |
+|---|---|---|---|---|---|---|
+| `tr` | 0,869 | **1,000** | 0,382 | 0,822 | 0,757 | 0,905 |
+| `ipc_grupo` | 0,837 | 0,980 | 0,880 | 0,839 | 0,486 | 0,922 |
+| `ipc_direto` | 0,869 | 0,980 | 0,802 | 0,841 | 0,674 | 0,898 |
+| `ipc_hierarquia` | 0,845 | 0,980 | 0,853 | 0,783 | 0,631 | 0,916 |
+
+**Nas queries específicas o efeito do IPC desaparece.** Amplitude entre variantes:
+0,02 em QF002E, 0,06 em QA006E, 0,02 em QG001E — contra 0,50 em QA006 e 0,27 em
+QG001. E todas as quatro ficam acima de 0,78.
+
+Isso reforça o mecanismo de injeção de vocabulário. Uma query específica carrega
+termos raros que estão no resumo e não na classificação — "HER2", "lixiviado",
+"semi-persistente" — então o BM25 já resolve com o texto puro, e acrescentar
+descrição de IPC não muda o ranking nem para melhor nem para pior. O
+enriquecimento por IPC só tem efeito material onde a query é genérica ou em
+linguagem natural, isto é, onde o vocabulário da consulta e o do documento não
+se encontram.
+
+Ressalvas: R entre 7 e 11, com efeito de teto (QF002E chega a 1,000 no `tr`);
+pool construído só com BM25, agora com as 4 variantes; notas ainda do LLM.
