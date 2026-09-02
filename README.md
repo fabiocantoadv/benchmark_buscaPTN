@@ -1,81 +1,52 @@
 # Benchmark de busca semântica em patentes
 
-Avalia recuperação semântica sobre patentes do INPI, comparando BM25 e
-[EmbeddingGemma-300M](https://huggingface.co/google/embeddinggemma-300m) e
-medindo o efeito de enriquecer o texto do documento com descrições de CIP/IPC
-em português.
+Avalia recuperação sobre patentes do INPI comparando **BM25** e
+**[EmbeddingGemma-300M](https://huggingface.co/google/embeddinggemma-300m)**, e
+mede o efeito de enriquecer o texto do documento com descrições de CIP/IPC em
+português.
 
-## Estado atual
+**→ [`docs/resultados.md`](docs/resultados.md) — a análise.**
 
-Benchmark **piloto**: 3 queries, corpus de 1.000 documentos, gabarito julgado
-manualmente (escala 0–3). O gabarito anterior, gerado por regras de IPC, foi
-abandonado — marcava 17% do corpus como relevante, o que fazia um ranqueador
-aleatório alcançar P@10 ≈ 0,21 e tornava a avaliação de variantes com IPC
-circular. Ele continua no histórico do git, até o commit `f3e68eb`.
+## O resultado em uma tabela
 
-| | gabarito por regras | gabarito piloto |
-|---|---|---|
-| R mediano (relevantes por query) | 172 / 1.000 | 28 / 1.000 |
-| P@10 de um ranqueador aleatório | 0,21 | 0,025 |
+nDCG@10 médio por tipo de consulta, 18 queries, corpus de 974 documentos:
 
-**Pendências, em ordem:** revisar os 135 julgamentos pré-classificados por LLM ·
-rodar os embeddings no Colab · refazer o pool com os rankings densos · escalar
-para 9–12 queries.
+| tipo | n | BM25 | Gemma |
+|---|---|---|---|
+| técnica | 7 | **0,761** | 0,725 |
+| específica | 3 | **0,871** | 0,826 |
+| curta | 1 | **0,757** | 0,622 |
+| natural | 7 | 0,177 | **0,546** |
 
-Detalhes do método, limitações e como revisar: **[`docs/gabarito-piloto.md`](docs/gabarito-piloto.md)**.
+Seis dos nove temas têm um par de queries — uma técnica e uma paráfrase em
+linguagem natural — apontando para o **mesmo conjunto de documentos relevantes**.
+Dentro do par só o vocabulário muda. O BM25 perde 0,60 de nDCG@10 nessa
+travessia; o Gemma perde 0,19, em 6 de 6 pares.
+
+> Os 622 julgamentos são pré-classificação por LLM, ainda sem revisão humana.
+> Nada é reportável antes disso.
 
 ## Estrutura
 
 ```
 dados/     corpus, queries, gabarito e qrels
-src/       módulos de avaliação, geração de embeddings e montagem do corpus
-docs/      guia do gabarito e comandos operacionais
-notebooks/ pipeline completo no Colab
+src/       avaliação, embeddings, construção do corpus e do pool
+docs/      resultados e instruções dos embeddings
+notebooks/ pipeline no Colab
 ```
 
-### `dados/`
+Arquivos centrais: `dados/corpus_piloto_ipc.tsv` (974 documentos úteis, 4
+variantes de texto), `dados/queries_piloto.tsv` (18 queries com critério de
+relevância e negativos difíceis declarados), `dados/qrels_piloto.tsv`,
+`dados/pool_piloto_gabarito.tsv` (a planilha de revisão).
 
-| arquivo | conteúdo |
-|---|---|
-| `corpus_piloto_ipc.tsv` | **o corpus** — 1.000 patentes com IPC, descrições PT e hierarquia; 4 variantes de texto |
-| `queries_piloto.tsv` | as 3 queries do piloto |
-| `qrels_piloto.tsv` | julgamentos usados na avaliação (3.000 linhas; `origem_julgamento` distingue julgado de presumido) |
-| `pool_piloto_gabarito.tsv` | **planilha de revisão** — 135 candidatos com nota do LLM, justificativa e colunas em branco para o revisor |
-| `queries_benchmark_patentes.tsv` | as 45 queries do desenho completo, para quando escalar |
-| `numeros_corpus_piloto.txt` | os 1.000 números que definem o corpus (congela o sorteio dos distratores) |
-| `*_resumo.tsv`, `ipc_simbolos_sem_descricao_*` | estatísticas de cobertura |
+## Rodar
 
-### Variantes de texto no corpus
+```bash
+python3 src/avaliar_denso.py     # Gemma × BM25, requer embeddings/
+```
 
-| coluna | conteúdo | mediana |
-|---|---|---|
-| `texto_para_embedding` | título + resumo | 143 palavras |
-| `texto_para_embedding_ipc_pt` | + descrição dos símbolos IPC da patente | 178 |
-| `texto_para_embedding_ipc_grupo_pt` | + descrição de grupo e subgrupo | 208 |
-| `texto_para_embedding_ipc_hierarquia_pt` | + cadeia hierárquica completa | 322 |
-
-### `src/`
-
-| arquivo | função |
-|---|---|
-| `avaliar_benchmark.py` | busca por similaridade e métricas — nDCG, R-Precision, MRR, P@k, diagnóstico do gabarito, teste pareado |
-| `baseline_bm25.py` | baseline lexical BM25 em português, sem dependências extras |
-| `gerar_embeddings_gemma300_benchmark.py` | gera os embeddings (Mac/MPS ou Colab/GPU) |
-| `gerar_pool_revisao.py` | pool de julgamento completo e diferencial |
-| `rodar_export_ipc.sh` + `export_corpus_piloto_ipc.sql` | reexportam o corpus do Postgres com IPC |
-| `enriquecer_ipc_json_pt.py` | acrescenta descrições IPC em PT e hierarquia |
-| `gerar_variante_ipc_grupo.py` | gera a variante `ipc_grupo` |
-| `consolidar_corpus_ipc.py` | confere cobertura e regrava o qrels |
-| `gerar_pool_piloto.py`, `montar_corpus_piloto.py` | como o corpus e o pool foram construídos (histórico; entradas não estão mais no repo) |
-
-## Como rodar
-
-**Colab** — abra `notebooks/benchmark_patentes_colab.ipynb`. Ele clona o repo,
-gera os embeddings das 4 variantes e calcula as métricas. Requer GPU, aceitar a
-licença do `google/embeddinggemma-300m` e um `HF_TOKEN` nos Secrets do Colab
-(cada pessoa cadastra o seu).
-
-**Local, só BM25** — não precisa de GPU nem de token:
+Só BM25, sem GPU nem token:
 
 ```python
 import sys; sys.path.insert(0, "src")
@@ -86,10 +57,9 @@ r = bm.buscar_bm25("dados/corpus_piloto_ipc.tsv", "dados/queries_piloto.tsv",
 ab.avaliar(r, qrels)["agregado"]
 ```
 
-Rode `ab.diagnosticar_qrels(qrels)` antes de interpretar qualquer métrica.
+Gerar os embeddings: [`docs/embeddings-gemma300.md`](docs/embeddings-gemma300.md).
 
 ## Trabalho em dupla
 
-Cada pessoa roda a própria cópia do notebook e envia mudanças por commit. Os
-arquivos em `resultados/` recebem carimbo de data e hora para que duas execuções
-não se sobrescrevam. `embeddings/` e `resultados/` não são versionados.
+Cada pessoa roda a própria cópia e envia mudanças por commit. `embeddings/` e
+`resultados/` não são versionados.
