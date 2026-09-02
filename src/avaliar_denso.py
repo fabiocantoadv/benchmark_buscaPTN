@@ -9,6 +9,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+# 26 documentos do corpus nao tem resumo (pedidos renumerados BR122...): mediana
+# de 14 palavras contra 145 dos demais. Textos degenerados produzem embeddings
+# proximos de quase tudo no espaco vetorial, e o Gemma os colocava em 78 das 180
+# posicoes do top-10 (o BM25, em zero, porque nao ha termo para casar). Sao
+# excluidos da avaliacao: uma patente sem resumo nao tem como ser representada,
+# e mante-los mede ruido de dados, nao qualidade de recuperacao.
+EXCLUIR_SEM_RESUMO = True
+
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ / "src"))
 import avaliar_benchmark as ab
@@ -29,6 +37,20 @@ METRICA = "nDCG@10"
 
 def main() -> int:
     qrels = ab.carregar_qrels(DADOS / "qrels_piloto.tsv")
+    corpus_df = pd.read_csv(CORPUS, sep="\t", dtype=str, low_memory=False,
+                            quoting=csv.QUOTE_NONE, escapechar="\\").fillna("")
+    sem_resumo = set()
+    if EXCLUIR_SEM_RESUMO:
+        sem_resumo = set(corpus_df[corpus_df.resumo.str.strip() == ""].num_pedido_normalizado)
+        corpus_df = corpus_df[~corpus_df.num_pedido_normalizado.isin(sem_resumo)]
+        qrels = qrels[~qrels.num_pedido_normalizado.isin(sem_resumo)]
+        corpus_uso = RAIZ / "resultados" / "_corpus_avaliacao.tsv"
+        corpus_uso.parent.mkdir(exist_ok=True)
+        corpus_df.to_csv(corpus_uso, sep="\t", index=False,
+                         quoting=csv.QUOTE_NONE, escapechar="\\")
+        print(f"excluidos {len(sem_resumo)} documentos sem resumo; corpus de avaliacao: {len(corpus_df)}")
+    else:
+        corpus_uso = CORPUS
     qs = pd.read_csv(QUERIES, sep="\t", dtype=str, quoting=csv.QUOTE_NONE,
                      escapechar="\\").fillna("").set_index("query_id")
 
@@ -44,10 +66,14 @@ def main() -> int:
     por_query = {}
     for nome, (coluna, pasta) in VARIANTES.items():
         emb_d = ab.carregar_colecao(EMB / pasta, "num_pedido_normalizado")
+        if sem_resumo:
+            keep = np.array([i for i, x in enumerate(emb_d["ids"]) if str(x) not in sem_resumo])
+            emb_d = {**emb_d, "ids": np.asarray(emb_d["ids"])[keep],
+                     "vetores": emb_d["vetores"][keep]}
         r = ab.buscar(emb_q, emb_d, top_k=100)
         por_query[f"gemma_{nome}"] = ab.avaliar(r, qrels, ks=(10,))["por_query"] \
                                        .set_index("query_id")[METRICA]
-        rb = bm.buscar_bm25(CORPUS, QUERIES, coluna_texto=coluna, top_k=100)
+        rb = bm.buscar_bm25(corpus_uso, QUERIES, coluna_texto=coluna, top_k=100)
         por_query[f"bm25_{nome}"] = ab.avaliar(rb, qrels, ks=(10,))["por_query"] \
                                       .set_index("query_id")[METRICA]
 

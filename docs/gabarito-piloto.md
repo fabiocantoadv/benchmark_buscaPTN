@@ -287,3 +287,62 @@ Qual variante de IPC usar também segue indefinido: sobre as naturais,
 
 E o par de defensivos agrícolas contraria a tendência nos dois tipos (−0,109 e
 −0,139), o que merece inspeção antes de qualquer generalização.
+
+## EmbeddingGemma × BM25 (primeira execução)
+
+### Um defeito de dados encontrado no caminho
+
+26 documentos do corpus (2,6%) não têm resumo — são pedidos renumerados
+(`BR122…`), com mediana de **14 palavras** contra 145 dos demais. Textos assim
+produzem embeddings próximos de quase tudo no espaço vetorial, e o Gemma os
+colocava em **78 das 180 posições** do top-10 na variante `tr`. O BM25 colocava
+zero, porque não há termo para casar.
+
+Isso é ruído de dados amplificado por uma propriedade da similaridade de
+cosseno, não uma falha do modelo. Os 26 são excluídos da avaliação
+(`EXCLUIR_SEM_RESUMO` em `src/avaliar_denso.py`); o custo foram 4 julgamentos,
+um deles relevante. O efeito no `gemma_tr` é grande: natural 0,336 → 0,494,
+técnica 0,574 → 0,696, e a query curta QG001 de 0,191 → 0,608.
+
+### nDCG@10 médio por tipo de query (corpus de 974)
+
+| tipo | n | `bm25_tr` | `gemma_tr` | `bm25_ipc_grupo` | `gemma_ipc_grupo` |
+|---|---|---|---|---|---|
+| técnica | 7 | **0,765** | 0,696 | **0,788** | 0,721 |
+| específica | 3 | **0,909** | 0,768 | **0,913** | 0,736 |
+| curta | 1 | **0,757** | 0,608 | 0,492 | **0,787** |
+| natural | 7 | 0,178 | **0,494** | 0,326 | **0,526** |
+
+### O resultado central
+
+| par | queda BM25 | queda Gemma |
+|---|---|---|
+| perfuração | −0,483 | −0,191 |
+| defensivos | −0,416 | −0,084 |
+| embalagens | −0,720 | −0,147 |
+| cirúrgicos | −0,776 | −0,203 |
+| compósitos | −0,442 | −0,186 |
+| microbiana | −0,781 | −0,473 |
+| **média** | **−0,603** | **−0,214** |
+
+Dentro de cada par o conjunto relevante é idêntico e só o vocabulário da
+consulta muda. O BM25 perde 0,60 de nDCG@10; o Gemma, 0,21 — **um terço da
+queda, em 6 de 6 pares**. Nas consultas em linguagem natural o Gemma quase
+triplica o BM25 (0,494 contra 0,178 na variante `tr`).
+
+O quadro não é "denso vence": o BM25 é melhor nas consultas técnicas (0,765
+contra 0,696) e nas específicas (0,909 contra 0,768). Cada um ganha onde sua
+premissa vale — o léxico quando a consulta traz os termos do documento, o denso
+quando não traz. Isso sugere que a recomendação prática é híbrida, não a
+substituição de um pelo outro.
+
+### O que ainda contamina estes números
+
+O pool foi construído com BM25 mais a corrida manual, então **164 documentos
+inéditos aparecem no top-10 do Gemma e contam como irrelevantes por não terem
+sido julgados** — em média 5,3 dos 10 na variante `tr`, contra 0,78 do BM25.
+O déficit do Gemma nas consultas técnicas e específicas é, em parte
+indeterminada, esse artefato. O resultado central sobrevive porque o viés
+empurra contra ele: mesmo penalizado, o denso vence onde a hipótese previa.
+
+Antes de reportar qualquer número: julgar os 164 candidatos inéditos.
