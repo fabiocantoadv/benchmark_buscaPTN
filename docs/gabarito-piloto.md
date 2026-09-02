@@ -345,4 +345,60 @@ O déficit do Gemma nas consultas técnicas e específicas é, em parte
 indeterminada, esse artefato. O resultado central sobrevive porque o viés
 empurra contra ele: mesmo penalizado, o denso vence onde a hipótese previa.
 
-Antes de reportar qualquer número: julgar os 164 candidatos inéditos.
+Os candidatos inéditos foram julgados — ver a seção seguinte.
+
+## Pool fechado com os rankings densos
+
+Dos 164 candidatos inéditos do top-10 do Gemma, 62 eram documentos sem resumo
+(excluídos). Os 102 restantes foram julgados. O pool passou de 522 para 622
+julgamentos e a cobertura ficou praticamente completa: **2 de 180** posições não
+julgadas no top-10 do `gemma_tr`, contra 78 na primeira medição.
+
+### nDCG@10 médio por tipo de query — corpus de 974, pool fechado
+
+| tipo | n | `bm25_tr` | `gemma_tr` | `bm25_ipc_grupo` | `gemma_ipc_grupo` |
+|---|---|---|---|---|---|
+| técnica | 7 | **0,761** | 0,725 | **0,781** | 0,757 |
+| específica | 3 | **0,871** | 0,826 | **0,874** | 0,809 |
+| curta | 1 | **0,757** | 0,622 | 0,492 | **0,800** |
+| natural | 7 | 0,177 | **0,546** | 0,323 | **0,592** |
+
+Fechar o pool praticamente eliminou o déficit do Gemma nas consultas técnicas:
+de −0,069 para **−0,036**. Ou seja, boa parte do que parecia inferioridade do
+modelo denso era gabarito incompleto. Nas naturais o ganho subiu de +0,315 para
+**+0,369**.
+
+### O resultado
+
+| par | queda BM25 | queda Gemma |
+|---|---|---|
+| perfuração | −0,483 | −0,162 |
+| defensivos | −0,416 | −0,084 |
+| embalagens | −0,720 | −0,145 |
+| cirúrgicos | −0,756 | −0,152 |
+| compósitos | −0,444 | −0,129 |
+| microbiana | −0,781 | −0,447 |
+| **média** | **−0,600** | **−0,186** |
+
+Dentro de cada par o conjunto relevante é idêntico e só o vocabulário muda. O
+BM25 perde 0,60 de nDCG@10; o Gemma, 0,19 — **31% da queda, em 6 de 6 pares**.
+
+Ganho do Gemma sobre o BM25 nas 7 naturais: média +0,369, desvio 0,255,
+positivo em 6 de 7 (a exceção é QP002, −0,049). E o denso vence em **29 de 29**
+subconjuntos de 5 ou mais queries naturais. É o resultado mais estável do
+projeto.
+
+Na direção contrária, o BM25 continua à frente nas técnicas e nas específicas,
+por margens pequenas (0,036 e 0,045). Cada abordagem ganha onde sua premissa
+vale — o léxico quando a consulta traz os termos do documento, o denso quando
+não traz. A recomendação prática que sai daqui é híbrida, não substitutiva.
+
+### Ressalvas que permanecem
+
+1. Os 622 julgamentos ainda são pré-classificação por LLM, sem revisão humana e
+   sem κ medido. **Nada disso é reportável antes dessa revisão.**
+2. O pool está fechado para BM25 e Gemma no top-10, não para outros sistemas nem
+   para k maior.
+3. 18 queries em 9 temas; o efeito nas naturais é grande e estável, mas as
+   diferenças pequenas (variantes de IPC, déficit nas técnicas) continuam dentro
+   do ruído.
