@@ -210,3 +210,80 @@ se encontram.
 
 Ressalvas: R entre 7 e 11, com efeito de teto (QF002E chega a 1,000 no `tr`);
 pool construído só com BM25, agora com as 4 variantes; notas ainda do LLM.
+
+## Expansão para 18 queries em 9 temas
+
+Seis temas novos, cada um com um **par**: uma query técnica e uma paráfrase em
+linguagem natural que aponta para o **mesmo conjunto de documentos**. Os
+julgamentos são compartilhados dentro do par, então qualquer diferença de
+métrica é atribuível só ao vocabulário da consulta.
+
+| tema | técnica | natural |
+|---|---|---|
+| perfuração de poços | QP001 | QP002 |
+| defensivos agrícolas | QD001 | QD002 |
+| embalagens | QE001 | QE002 |
+| instrumentos cirúrgicos | QC001 | QC002 |
+| materiais compósitos | QM001 | QM002 |
+| produção microbiana | QB001 | QB002 |
+
+522 julgamentos, R mediano 17,5 em 1.000 (1,8% do corpus), P@10 aleatório 0,017.
+
+### Correção do viés de pool
+
+Um pool feito só com BM25 deixa de fora justamente os documentos que a query em
+linguagem natural deveria recuperar e não recupera — ou seja, enviesa o gabarito
+**contra** os sistemas que resolvem a lacuna de vocabulário. O pool passou a ter
+duas fontes (`src/montar_pool_tema.py`): o pooling automático das 4 variantes
+para as duas queries do par, mais uma **corrida manual** por termo técnico + IPC
+do tema. A corrida manual trouxe 35 dos 163 candidatos (21%) que o BM25 nunca
+alcançou.
+
+Caso exemplar: para QD002 existe no corpus a `BR0920002`, "MÉTODO PARA REDUZIR A
+DERIVA DE PULVERIZAÇÃO DURANTE A APLICAÇÃO DE UM PESTICIDA". Nenhuma das quatro
+variantes a recuperou. A query fala "agrotóxico", "vento", "espalhar"; a patente
+fala "deriva", "pulverização", "formulação".
+
+### Resultado: nDCG@10 médio por tipo de query
+
+| tipo | n | `tr` | `ipc_grupo` | `ipc_direto` | `ipc_hierarquia` |
+|---|---|---|---|---|---|
+| técnica | 7 | 0,765 | 0,788 | 0,764 | 0,793 |
+| específica | 3 | 0,909 | 0,913 | 0,906 | 0,893 |
+| natural | 7 | **0,178** | **0,317** | 0,295 | 0,316 |
+
+**O achado robusto é o nível, não o ganho.** O BM25 desaba em consultas em
+linguagem natural: 0,178 contra 0,765 nas técnicas — um fator de 4, com o
+conjunto relevante idêntico dentro de cada par. Em QB002 ("usar bactérias
+modificadas para fabricar substâncias dentro de um tanque") o `tr` marca
+**0,000**: nenhum relevante no top-10.
+
+Sobre as naturais, o `tr` **nunca vence**: 0 de 29 subconjuntos de 5 ou mais
+queries naturais. Esse é o primeiro resultado deste benchmark que sobrevive ao
+jackknife.
+
+### O que ainda NÃO está estabelecido
+
+O ganho do IPC dentro de cada par, medido como `ipc_grupo − tr`:
+
+| tema | ganho na técnica | ganho na natural |
+|---|---|---|
+| perfuração | +0,027 | +0,045 |
+| defensivos | −0,109 | −0,139 |
+| embalagens | +0,098 | +0,103 |
+| cirúrgicos | +0,008 | +0,173 |
+| compósitos | +0,125 | +0,278 |
+| microbiana | +0,047 | +0,014 |
+| **média** | **+0,033** | **+0,079** |
+| desvio | 0,082 | 0,143 |
+
+A direção é a esperada — o enriquecimento rende mais onde há lacuna de
+vocabulário — mas o efeito ajuda em 5 dos 6 pares nos **dois** tipos, e os
+desvios são maiores que a diferença entre as médias. Com n = 6 pares, a
+**interação** entre tipo de query e enriquecimento não está demonstrada.
+
+Qual variante de IPC usar também segue indefinido: sobre as naturais,
+`ipc_grupo` vence 12 de 29 subconjuntos e `ipc_hierarquia` 11.
+
+E o par de defensivos agrícolas contraria a tendência nos dois tipos (−0,109 e
+−0,139), o que merece inspeção antes de qualquer generalização.
