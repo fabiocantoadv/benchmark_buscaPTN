@@ -39,6 +39,40 @@ EMB_QUERIES = EMB / "gemma300_queries_fase2"
 # sufixo das colecoes de documento). Separar os dois permite trocar so a
 # instrucao da query, que custa 2 embeddings, contra 974 x 4 do lado do
 # documento. Configuracoes ausentes em embeddings/ sao ignoradas.
+# BGE-M3: sem instrucao (por desenho do modelo) e com contexto de 8192
+# tokens. So as variantes geradas em src/gerar_embeddings_bgem3.py.
+M3_QUERIES = EMB / "bgem3_queries_fase2"
+M3_DOCS = {"tr": "bgem3_tr_docs", "ipc_grupo": "bgem3_ipc_grupo_docs"}
+# Peso do esparso na soma com o denso. O artigo do M3 usa 1 : 0,3 : 1 para
+# denso : esparso : ColBERT; --peso-esparso muda isso.
+PESO_ESPARSO = 0.3
+
+
+def carregar_sparse(pasta: Path) -> list[dict[int, float]] | None:
+    """Le sparse_bloco_00000.npz (CSR) como uma lista de dicts token -> peso."""
+    caminho = pasta / "sparse_bloco_00000.npz"
+    if not caminho.exists():
+        return None
+    z = np.load(caminho)
+    indptr, ids_tok, pesos = z["indptr"], z["ids"], z["pesos"]
+    return [dict(zip(ids_tok[a:b].tolist(), pesos[a:b].tolist()))
+            for a, b in zip(indptr[:-1], indptr[1:])]
+
+
+def score_lexical(q: dict[int, float], docs: list[dict[int, float]]) -> np.ndarray:
+    """Casamento lexical do M3: soma dos produtos dos pesos dos tokens comuns."""
+    return np.array([sum(peso * d[tok] for tok, peso in q.items() if tok in d)
+                     for d in docs], dtype=np.float32)
+
+
+def ranking_de_scores(qid: str, doc_ids: np.ndarray, scores: np.ndarray,
+                      top_k: int) -> dict:
+    top_k = min(top_k, len(doc_ids))
+    idx = np.argsort(-scores)[:top_k]
+    return {"query_ids": np.array([qid]),
+            "doc_ids_ranking": doc_ids[idx][None, :],
+            "scores_ranking": scores[idx][None, :]}
+
 CONFIGS_GEMMA = {
     "gemma":      ("", ""),                             # instrucao PT nos dois lados
     "gemma_si":   ("_sem_instrucao", "_sem_instrucao"),  # sem instrucao nenhuma
@@ -60,6 +94,8 @@ def main() -> int:
     p.add_argument("--ks", default="5,10,20")
     p.add_argument("--top-k", type=int, default=100)
     p.add_argument("--saida", type=Path, default=None)
+    p.add_argument("--peso-esparso", type=float, default=PESO_ESPARSO,
+                   help="Peso do esparso do M3 na soma com o denso (padrao 0.3).")
     p.add_argument("--relevancia", default=None,
                    help="Coluna de relevancia a usar. Padrao: relevancia_humana, "
                         "senao relevancia, senao relevancia_llm.")
@@ -131,10 +167,31 @@ def main() -> int:
         if sel:
             emb_q[rotulo] = {**c, "ids": np.asarray(c["ids"])[sel],
                              "vetores": c["vetores"][sel]}
-    if not emb_q:
+    emb_q_m3, idx_q_m3 = None, None
+    if M3_QUERIES.exists():
+        c = ab.carregar_colecao(M3_QUERIES, "query_id")
+        sel = [i for i, x in enumerate(c["ids"]) if str(x) == qid]
+        if sel:
+            idx_q_m3 = sel[0]
+            emb_q_m3 = {**c, "ids": np.asarray(c["ids"])[sel],
+                        "vetores": c["vetores"][sel]}
+    if not emb_q and emb_q_m3 is None:
         print(f"sem embedding de {qid} em {EMB_QUERIES.name}: so BM25 nesta rodada.\n")
     else:
-        print("configuracoes do Gemma nesta rodada:", ", ".join(emb_q), "\n")
+        rotulos = list(emb_q) + (["bgem3"] if emb_q_m3 is not None else [])
+        print("modelos densos nesta rodada:", ", ".join(rotulos), "\n")
+
+
+    def avaliar_denso(q_vec, pasta_d, rotulo, nome_variante, destino):
+        if not pasta_d.exists():
+            return
+        emb_d = ab.carregar_colecao(pasta_d, "num_pedido_normalizado")
+        keep = np.array([i for i, x in enumerate(emb_d["ids"]) if str(x) in ids])
+        emb_d = {**emb_d, "ids": np.asarray(emb_d["ids"])[keep],
+                 "vetores": emb_d["vetores"][keep]}
+        r = ab.buscar(q_vec, emb_d, top_k=args.top_k)
+        m = ab.avaliar(r, qrels, ks=ks)["por_query"].iloc[0].to_dict()
+        destino.append({"sistema": rotulo, "variante": nome_variante, **m})
 
     linhas = []
     for nome, (coluna, pasta) in VARIANTES.items():
@@ -142,16 +199,23 @@ def main() -> int:
         m = ab.avaliar(r, qrels, ks=ks)["por_query"].iloc[0].to_dict()
         linhas.append({"sistema": "bm25", "variante": nome, **m})
         for rotulo, q_vec in emb_q.items():
-            pasta_d = EMB / (pasta + CONFIGS_GEMMA[rotulo][1])
-            if not pasta_d.exists():
-                continue
-            emb_d = ab.carregar_colecao(pasta_d, "num_pedido_normalizado")
-            keep = np.array([i for i, x in enumerate(emb_d["ids"]) if str(x) in ids])
-            emb_d = {**emb_d, "ids": np.asarray(emb_d["ids"])[keep],
-                     "vetores": emb_d["vetores"][keep]}
-            rd = ab.buscar(q_vec, emb_d, top_k=args.top_k)
-            m = ab.avaliar(rd, qrels, ks=ks)["por_query"].iloc[0].to_dict()
-            linhas.append({"sistema": rotulo, "variante": nome, **m})
+            avaliar_denso(q_vec, EMB / (pasta + CONFIGS_GEMMA[rotulo][1]),
+                          rotulo, nome, linhas)
+        if emb_q_m3 is not None and nome in M3_DOCS:
+            pasta_m3 = EMB / M3_DOCS[nome]
+            avaliar_denso(emb_q_m3, pasta_m3, "bgem3", nome, linhas)
+            esp_d, esp_q = carregar_sparse(pasta_m3), carregar_sparse(M3_QUERIES)
+            if esp_d is not None and esp_q is not None:
+                emb_d = ab.carregar_colecao(pasta_m3, "num_pedido_normalizado")
+                keep = [i for i, x in enumerate(emb_d["ids"]) if str(x) in ids]
+                doc_ids = np.asarray(emb_d["ids"])[keep]
+                s_esp = score_lexical(esp_q[idx_q_m3], [esp_d[i] for i in keep])
+                s_den = (emb_q_m3["vetores"] @ emb_d["vetores"][keep].T)[0]
+                for rotulo, sc in (("bgem3_esp", s_esp),
+                                   ("bgem3_hib", s_den + args.peso_esparso * s_esp)):
+                    r = ranking_de_scores(qid, doc_ids, sc, args.top_k)
+                    m = ab.avaliar(r, qrels, ks=ks)["por_query"].iloc[0].to_dict()
+                    linhas.append({"sistema": rotulo, "variante": nome, **m})
 
     M = pd.DataFrame(linhas).drop(columns=["query_id"])
     cols = ["sistema", "variante", "nDCG@10", "R-Precision", "MRR", "P@10"]
