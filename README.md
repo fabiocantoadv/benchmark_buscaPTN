@@ -5,61 +5,78 @@ Avalia recuperação sobre patentes do INPI comparando **BM25** e
 mede o efeito de enriquecer o texto do documento com descrições de CIP/IPC em
 português.
 
-**→ [`docs/resultados.md`](docs/resultados.md) — a análise.**
+Corpus: amostra de **1.000 pedidos** (`dados/corpus_piloto_ipc.tsv`), 974 com
+resumo utilizável, em 4 variantes de texto.
 
-## O resultado em uma tabela
+## Fase 2 — queries por humano + LLM
 
-nDCG@10 médio por tipo de consulta, 18 queries, corpus de 974 documentos:
+Cada query é elaborada em conjunto (humano define o tema e o critério, LLM
+propõe a formulação) e recebe um gabarito próprio, simples:
 
-| tipo | n | BM25 | Gemma |
+```
+dados/queries_fase2.tsv     uma linha por query
+dados/gabaritos/<qid>.tsv   query_id, query_text, num_pedido, titulo, resumo, relevancia
+```
+
+`relevancia` é 0, 1 ou 2, atribuída por LLM sobre os candidatos recuperados.
+Documentos do corpus fora do gabarito entram na avaliação como 0. Os
+julgamentos ainda **não passaram por revisão humana** — nada é reportável
+antes disso.
+
+### QN003 — primeira query da fase
+
+`Terapias baseadas em anticorpos para tratamento de câncer` (natural),
+45 documentos julgados, 18 relevantes, nDCG@10:
+
+| variante do texto do documento | BM25 | Gemma | Gemma sem instrução |
 |---|---|---|---|
-| técnica | 7 | **0,761** | 0,725 |
-| específica | 3 | **0,871** | 0,826 |
-| curta | 1 | **0,757** | 0,622 |
-| natural | 7 | 0,177 | **0,546** |
+| tr (título + resumo) | 0,217 | **0,736** | 0,619 |
+| ipc_grupo | 0,349 | 0,694 | 0,621 |
+| ipc_direto | 0,217 | 0,667 | 0,638 |
+| ipc_hierarquia | **0,415** | 0,698 | 0,524 |
 
-Seis dos nove temas têm um par de queries — uma técnica e uma paráfrase em
-linguagem natural — apontando para o **mesmo conjunto de documentos relevantes**.
-Dentro do par só o vocabulário muda. O BM25 perde 0,60 de nDCG@10 nessa
-travessia; o Gemma perde 0,19, em 6 de 6 pares.
+O enriquecimento por IPC ajuda o BM25 e atrapalha o Gemma: a descrição da
+classificação em português dá ao ranking lexical o vocabulário que a query
+natural não compartilha com o resumo, enquanto o modelo denso já resolve esse
+salto sozinho e trata o texto da CIP como diluição. O Gemma acerta o primeiro
+colocado em todas as variantes (MRR 1,000).
 
-> Os 622 julgamentos são pré-classificação por LLM, ainda sem revisão humana.
-> Nada é reportável antes disso.
+A terceira coluna testa a instrução em português prefixada a documento e
+query, que substitui os prompts nativos do EmbeddingGemma (`title: none |
+text:` e `task: search result | query:`). Ela ganha nas quatro variantes, e
+ganha mais justamente onde o texto da CIP é maior — 0,17 de nDCG@10 no
+`ipc_hierarquia` contra 0,03 no `ipc_direto`. Ou seja: a instrução não
+conflita com o enriquecimento por IPC, ela protege contra a diluição que ele
+causa. Fica como está.
+
+## Rodar
+
+Uma query, BM25 nas 4 variantes (não precisa de GPU nem de modelo):
+
+```bash
+python3 src/avaliar_query.py dados/gabaritos/QN003.tsv
+```
+
+Com o Gemma, gerando antes o embedding das queries:
+
+```bash
+python3 src/gerar_embeddings_gemma300_benchmark.py --kind queries
+python3 src/avaliar_query.py dados/gabaritos/QN003.tsv
+```
+
+Embeddings dos documentos: [`docs/embeddings-gemma300.md`](docs/embeddings-gemma300.md).
 
 ## Estrutura
 
 ```
-dados/     corpus, queries, gabarito e qrels
-src/       avaliação, embeddings, construção do corpus e do pool
-docs/      resultados e instruções dos embeddings
-notebooks/ pipeline no Colab
+dados/gabaritos/  um gabarito por query
+dados/            corpus e queries
+src/              avaliação, embeddings e construção do corpus
+notebooks/        pipeline no Colab
 ```
 
-Arquivos centrais: `dados/corpus_piloto_ipc.tsv` (974 documentos úteis, 4
-variantes de texto), `dados/queries_piloto.tsv` (18 queries com critério de
-relevância e negativos difíceis declarados), `dados/qrels_piloto.tsv`,
-`dados/pool_piloto_gabarito.tsv` (a planilha de revisão).
-
-## Rodar
-
-```bash
-python3 src/avaliar_denso.py     # Gemma × BM25, requer embeddings/
-```
-
-Só BM25, sem GPU nem token:
-
-```python
-import sys; sys.path.insert(0, "src")
-import avaliar_benchmark as ab, baseline_bm25 as bm
-qrels = ab.carregar_qrels("dados/qrels_piloto.tsv")
-r = bm.buscar_bm25("dados/corpus_piloto_ipc.tsv", "dados/queries_piloto.tsv",
-                   coluna_texto="texto_para_embedding")
-ab.avaliar(r, qrels)["agregado"]
-```
-
-Gerar os embeddings: [`docs/embeddings-gemma300.md`](docs/embeddings-gemma300.md).
+`embeddings/` e `resultados/` não são versionados.
 
 ## Trabalho em dupla
 
-Cada pessoa roda a própria cópia e envia mudanças por commit. `embeddings/` e
-`resultados/` não são versionados.
+Cada pessoa roda a própria cópia e envia mudanças por commit.

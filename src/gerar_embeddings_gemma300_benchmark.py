@@ -46,7 +46,7 @@ QUERY_INSTRUCTION = (
 )
 
 # Corpus do benchmark piloto: 1.000 documentos com IPC, descricoes PT e
-# hierarquia, avaliado contra o gabarito julgado (qrels_piloto.tsv).
+# hierarquia, avaliado contra os gabaritos em dados/gabaritos/.
 CORPUS = BASE_DIR / "corpus_piloto_ipc.tsv"
 
 DOC_VARIANTS = {
@@ -72,12 +72,13 @@ DOC_VARIANTS = {
     },
 }
 
-# Piloto: so as 3 queries do gabarito julgado. Para voltar as 45, troque por
-# "queries_benchmark_patentes.tsv" e use o qrels correspondente.
+# Fase 2: as queries elaboradas por humano + LLM, uma por gabarito em
+# dados/gabaritos/. Cada query nova entra em queries_fase2.tsv e o script
+# retoma so os blocos que faltam.
 QUERY_CONFIG = {
-    "input": BASE_DIR / "queries_piloto.tsv",
+    "input": BASE_DIR / "queries_fase2.tsv",
     "text_column": "query_text",
-    "output_name": "gemma300_queries",
+    "output_name": "gemma300_queries_fase2",
 }
 
 

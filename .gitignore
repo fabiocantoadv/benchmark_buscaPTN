@@ -1,6 +1,8 @@
 # Embeddings sao regeraveis em poucos minutos; nao versionar (~3 MB por colecao)
 embeddings/
-resultados/
+resultados/*
+# ...exceto a tabela final de cada query, que e o resultado reportado.
+!resultados/*_bm25_gemma.csv
 
 # Python
 __pycache__/
