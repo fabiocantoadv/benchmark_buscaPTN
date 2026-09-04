@@ -14,9 +14,13 @@ embeddings/gemma300_queries_fase2 (gere no Mac, com o modelo baixado):
 
     python3 src/gerar_embeddings_gemma300_benchmark.py --kind queries
 
-Se existirem tambem as colecoes com sufixo _sem_instrucao (geradas com
---no-instruction, veja src/gerar_sem_instrucao.sh), a linha "gemma_si" entra
-na tabela e isola o efeito da instrucao em portugues.
+Cada configuracao de instrucao presente em embeddings/ vira uma linha da
+tabela: "gemma" (instrucao PT nos dois lados), "gemma_si" (sem instrucao,
+veja src/gerar_sem_instrucao.sh) e "gemma_qipc" (so a instrucao da query
+muda, pedindo correspondencia de classificacao):
+
+    python3 src/gerar_embeddings_gemma300_benchmark.py --kind queries \
+        --query-instruction ipc --overwrite
 """
 from __future__ import annotations
 import argparse, csv, sys
@@ -31,9 +35,15 @@ import baseline_bm25 as bm
 CORPUS = RAIZ / "dados" / "corpus_piloto_ipc.tsv"
 EMB = RAIZ / "embeddings"
 EMB_QUERIES = EMB / "gemma300_queries_fase2"
-# Cada configuracao do Gemma: rotulo -> sufixo das colecoes de embedding.
-# "" usa a instrucao em portugues; "_sem_instrucao" nao usa nenhuma.
-CONFIGS_GEMMA = {"gemma": "", "gemma_si": "_sem_instrucao"}
+# Cada configuracao do Gemma: rotulo -> (sufixo da colecao de queries,
+# sufixo das colecoes de documento). Separar os dois permite trocar so a
+# instrucao da query, que custa 2 embeddings, contra 974 x 4 do lado do
+# documento. Configuracoes ausentes em embeddings/ sao ignoradas.
+CONFIGS_GEMMA = {
+    "gemma":      ("", ""),                             # instrucao PT nos dois lados
+    "gemma_si":   ("_sem_instrucao", "_sem_instrucao"),  # sem instrucao nenhuma
+    "gemma_qipc": ("_ipc", ""),                          # query pede correspondencia de CIP
+}
 VARIANTES = {
     "tr":             ("texto_para_embedding",                   "gemma300_tr_docs"),
     "ipc_grupo":      ("texto_para_embedding_ipc_grupo_pt",      "gemma300_tr_ipc_grupo_pt_docs"),
@@ -112,8 +122,8 @@ def main() -> int:
           f"relevantes: {n_rel} (rel=2: {sum(1 for v in julg.values() if v == 2)})\n")
 
     emb_q = {}
-    for rotulo, sufixo in CONFIGS_GEMMA.items():
-        pasta_q = EMB_QUERIES.with_name(EMB_QUERIES.name + sufixo)
+    for rotulo, (sufixo_q, _) in CONFIGS_GEMMA.items():
+        pasta_q = EMB_QUERIES.with_name(EMB_QUERIES.name + sufixo_q)
         if not pasta_q.exists():
             continue
         c = ab.carregar_colecao(pasta_q, "query_id")
@@ -132,7 +142,7 @@ def main() -> int:
         m = ab.avaliar(r, qrels, ks=ks)["por_query"].iloc[0].to_dict()
         linhas.append({"sistema": "bm25", "variante": nome, **m})
         for rotulo, q_vec in emb_q.items():
-            pasta_d = EMB / (pasta + CONFIGS_GEMMA[rotulo])
+            pasta_d = EMB / (pasta + CONFIGS_GEMMA[rotulo][1])
             if not pasta_d.exists():
                 continue
             emb_d = ab.carregar_colecao(pasta_d, "num_pedido_normalizado")

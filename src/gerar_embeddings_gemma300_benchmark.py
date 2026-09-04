@@ -10,6 +10,8 @@ Uso local no Mac:
 Tambem gera embeddings das queries:
 
     python3 gerar_embeddings_gemma300_benchmark.py --kind queries
+    python3 gerar_embeddings_gemma300_benchmark.py --kind queries \
+        --query-instruction ipc --overwrite
 """
 
 from __future__ import annotations
@@ -44,6 +46,19 @@ QUERY_INSTRUCTION = (
     "Represente esta consulta de busca de patentes para recuperar documentos "
     "tecnicamente relevantes:"
 )
+
+# Instrucoes de query nomeadas. O nome entra no config.json e no sufixo da
+# colecao, para que duas configuracoes nunca se confundam na avaliacao.
+# Trocar a instrucao da query custa 2 linhas de embedding; trocar a do
+# documento custa 974 x 4.
+QUERY_INSTRUCTIONS = {
+    "pt": QUERY_INSTRUCTION,
+    "ipc": (
+        "Represente esta consulta de busca de patentes para recuperar documentos "
+        "cujo dominio tecnico e classificacao internacional de patentes (CIP/IPC) "
+        "correspondam ao que a consulta descreve:"
+    ),
+}
 
 # Corpus do benchmark piloto: 1.000 documentos com IPC, descricoes PT e
 # hierarquia, avaliado contra os gabaritos em dados/gabaritos/.
@@ -251,7 +266,8 @@ def salvar_config(args: argparse.Namespace, output_dir: Path, input_path: Path, 
         "limit": args.limit,
         "usar_instrucao": not args.no_instruction,
         "doc_instruction": DOC_INSTRUCTION if args.kind == "docs" and not args.no_instruction else "",
-        "query_instruction": QUERY_INSTRUCTION if args.kind == "queries" and not args.no_instruction else "",
+        "query_instruction_nome": args.query_instruction if args.kind == "queries" and not args.no_instruction else "",
+        "query_instruction": QUERY_INSTRUCTIONS[args.query_instruction] if args.kind == "queries" and not args.no_instruction else "",
         "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "python": sys.version,
         "platform": platform.platform(),
@@ -274,12 +290,17 @@ def main() -> int:
     parser.add_argument("--max-seq-length", type=int, default=2048)
     parser.add_argument("--limit", type=int, default=None, help="Processa so as primeiras N linhas para teste.")
     parser.add_argument("--no-instruction", action="store_true", help="Nao adiciona instrucao PT antes do texto.")
+    parser.add_argument("--query-instruction", choices=sorted(QUERY_INSTRUCTIONS), default="pt",
+                        help="Instrucao nomeada para --kind queries. O nome vira sufixo "
+                             "da colecao, exceto 'pt' (o padrao).")
     parser.add_argument("--overwrite", action="store_true", help="Regenera blocos mesmo se ja existirem.")
     args = parser.parse_args()
 
     if args.kind == "queries":
-        defaults = QUERY_CONFIG
-        instruction = QUERY_INSTRUCTION
+        defaults = dict(QUERY_CONFIG)
+        instruction = QUERY_INSTRUCTIONS[args.query_instruction]
+        if args.query_instruction != "pt":
+            defaults["output_name"] += f"_{args.query_instruction}"
     else:
         defaults = DOC_VARIANTS[args.variant]
         instruction = DOC_INSTRUCTION

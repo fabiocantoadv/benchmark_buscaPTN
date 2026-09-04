@@ -64,6 +64,16 @@ Para o IPC ser decidido são necessárias mais queries, com temas de perfis de
 classificação diferentes. A instrução vs. prompt nativo do EmbeddingGemma
 (`title: none | text:` / `task: search result | query:`) idem.
 
+**Instrução da query pedindo correspondência de CIP** (`gemma_qipc`, só o
+lado query muda, contra as mesmas coleções de documento): sem efeito. A
+diferença para a instrução atual fica entre -0,047 e +0,079 de nDCG@10, com
+sinal trocado entre as duas queries em metade das variantes, e média de
++0,013 nas oito medidas. O único sinal consistente é no `ipc_direto`, onde
+ganha nas duas (+0,022 e +0,079) — com duas queries, isso é uma pista para
+reexaminar depois, não um resultado. Redação de instrução parece render
+pouco em relação ao que varia entre queries; o esforço rende mais em número
+de queries e na limpeza do texto de CIP.
+
 ## Rodar
 
 Uma query, BM25 nas 4 variantes (não precisa de GPU nem de modelo):
