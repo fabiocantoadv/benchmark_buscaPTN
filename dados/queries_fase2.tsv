@@ -1,2 +1,3 @@
 query_id	tema	tipo_query	query_text	origem
 QN003	tratamentos_cancer_farmacos	natural	Terapias baseadas em anticorpos para tratamento de câncer	humano+llm
+QN001	remediacao_agua_efluentes	natural	Tecnologias e processos para remover ou reduzir contaminantes químicos presentes em água e efluentes	humano+llm

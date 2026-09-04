@@ -23,31 +23,46 @@ Documentos do corpus fora do gabarito entram na avaliação como 0. Os
 julgamentos ainda **não passaram por revisão humana** — nada é reportável
 antes disso.
 
-### QN003 — primeira query da fase
+### As duas primeiras queries
 
-`Terapias baseadas em anticorpos para tratamento de câncer` (natural),
-45 documentos julgados, 18 relevantes, nDCG@10:
+nDCG@10, corpus de 974, gabarito com revisão humana quando existe:
 
-| variante do texto do documento | BM25 | Gemma | Gemma sem instrução |
+**QN003** — `Terapias baseadas em anticorpos para tratamento de câncer`
+(45 julgados, 18 relevantes, julgamento só por LLM)
+
+| variante | BM25 | Gemma | Gemma s/ instrução |
 |---|---|---|---|
-| tr (título + resumo) | 0,217 | **0,736** | 0,619 |
+| tr | 0,217 | **0,736** | 0,619 |
 | ipc_grupo | 0,349 | 0,694 | 0,621 |
 | ipc_direto | 0,217 | 0,667 | 0,638 |
-| ipc_hierarquia | **0,415** | 0,698 | 0,524 |
+| ipc_hierarquia | 0,415 | 0,698 | 0,524 |
 
-O enriquecimento por IPC ajuda o BM25 e atrapalha o Gemma: a descrição da
-classificação em português dá ao ranking lexical o vocabulário que a query
-natural não compartilha com o resumo, enquanto o modelo denso já resolve esse
-salto sozinho e trata o texto da CIP como diluição. O Gemma acerta o primeiro
-colocado em todas as variantes (MRR 1,000).
+**QN001** — `Tecnologias e processos para remover ou reduzir contaminantes
+químicos presentes em água e efluentes` (21 julgados, 13 relevantes, revisto
+por humano; o LLM concordava em 16 dos 21)
 
-A terceira coluna testa a instrução em português prefixada a documento e
-query, que substitui os prompts nativos do EmbeddingGemma (`title: none |
-text:` e `task: search result | query:`). Ela ganha nas quatro variantes, e
-ganha mais justamente onde o texto da CIP é maior — 0,17 de nDCG@10 no
-`ipc_hierarquia` contra 0,03 no `ipc_direto`. Ou seja: a instrução não
-conflita com o enriquecimento por IPC, ela protege contra a diluição que ele
-causa. Fica como está.
+| variante | BM25 | Gemma | Gemma s/ instrução |
+|---|---|---|---|
+| tr | 0,116 | 0,697 | 0,715 |
+| ipc_grupo | 0,170 | 0,795 | 0,821 |
+| ipc_direto | 0,142 | 0,802 | **0,834** |
+| ipc_hierarquia | 0,196 | 0,658 | 0,756 |
+
+**O que se sustenta nas duas:** o Gemma ganha do BM25 em toda variante, por
+margens de 0,3 a 0,7 de nDCG@10, e acerta o primeiro colocado em quase todas
+(MRR 1,000). Em queries naturais o baseline lexical não compete.
+
+**O que não se sustenta:** as duas conclusões que a QN003 sugeria se invertem
+na QN001. Lá o texto puro era a melhor variante do Gemma e o IPC diluía;
+aqui o IPC melhora o Gemma (0,697 → 0,802 no `ipc_direto`). Lá a instrução em
+português ganhava nas quatro variantes; aqui ela perde nas quatro. Nenhum dos
+dois efeitos tem sinal estável com duas queries — a variação entre queries é
+maior que a variação entre configurações. Só o que vale por enquanto é a
+comparação Gemma × BM25.
+
+Para o IPC ser decidido são necessárias mais queries, com temas de perfis de
+classificação diferentes. A instrução vs. prompt nativo do EmbeddingGemma
+(`title: none | text:` / `task: search result | query:`) idem.
 
 ## Rodar
 

@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Avalia UMA query contra um gabarito simples (fase 2).
 
-Gabarito: TSV com query_id, query_text, num_pedido, titulo, resumo, relevancia.
+Gabarito: TSV com query_id, query_text, num_pedido, titulo, resumo e a coluna
+de relevancia (0/1/2). A coluna usada e, nesta ordem: relevancia_humana,
+relevancia, relevancia_llm — ou seja, o julgamento revisado manda quando
+existe. --relevancia força uma coluna especifica.
 Tudo que esta no corpus e nao esta no gabarito entra como relevancia 0.
 
     python3 src/avaliar_query.py dados/gabaritos/QN003.tsv
@@ -47,15 +50,36 @@ def main() -> int:
     p.add_argument("--ks", default="5,10,20")
     p.add_argument("--top-k", type=int, default=100)
     p.add_argument("--saida", type=Path, default=None)
+    p.add_argument("--relevancia", default=None,
+                   help="Coluna de relevancia a usar. Padrao: relevancia_humana, "
+                        "senao relevancia, senao relevancia_llm.")
     args = p.parse_args()
     ks = tuple(int(k) for k in args.ks.split(","))
 
     gab = pd.read_csv(args.gabarito, sep="\t", dtype=str).fillna("")
-    gab["relevancia"] = gab["relevancia"].astype(int)
     gab = gab.drop_duplicates(subset=["query_id", "num_pedido"], keep="first")
+    col = args.relevancia
+    if col is None:
+        for c in ("relevancia_humana", "relevancia", "relevancia_llm"):
+            if c in gab.columns and (gab[c].str.strip() != "").all():
+                col = c
+                break
+    if col is None or col not in gab.columns:
+        raise SystemExit(f"{args.gabarito}: nenhuma coluna de relevancia utilizavel")
+    gab[col] = gab[col].astype(int)
     qid = gab.query_id.iloc[0]
     qtext = gab.query_text.iloc[0]
-    julg = dict(zip(gab.num_pedido, gab.relevancia))
+    julg = dict(zip(gab.num_pedido, gab[col]))
+
+    outra = "relevancia_llm" if col == "relevancia_humana" else None
+    if outra and outra in gab.columns and (gab[outra].str.strip() != "").all():
+        b = gab[outra].astype(int)
+        iguais = int((b == gab[col]).sum())
+        print(f"julgamento: {col} (LLM concorda em {iguais}/{len(gab)}; "
+              f"o LLM da relevancia maior em {int((b > gab[col]).sum())}, "
+              f"menor em {int((b < gab[col]).sum())})")
+    else:
+        print(f"julgamento: {col}")
 
     corpus = pd.read_csv(CORPUS, sep="\t", dtype=str, low_memory=False,
                          quoting=csv.QUOTE_NONE, escapechar="\\").fillna("")
